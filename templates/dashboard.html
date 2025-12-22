@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Attendance Portal{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-12">
+        <h2 class="fw-bold mb-0"><i class="bi bi-grid-1x2-fill me-2 text-primary"></i>Dashboard overview</h2>
+        <p class="text-muted">Welcome back, <strong>{{ current_user.name }}</strong>! Monitoring student progress in
+            real-time.</p>
+    </div>
+</div>
+
+<!-- Quick Action Card -->
+<div class="row mb-5">
+    <div class="col-md-12">
+        <div class="card border-0 shadow-lg overflow-hidden position-relative"
+            style="background: linear-gradient(135deg, #4361ee 0%, #3f37c9 100%); border-radius: 20px;">
+            <div class="card-body p-5">
+                <div class="row align-items-center">
+                    <div class="col-md-7 position-relative" style="z-index: 2;">
+                        <h1 class="display-5 fw-bold text-white mb-3">Record Attendance</h1>
+                        <p class="text-white-50 fs-5 mb-4">Select your subject and mark today's attendance in seconds.
+                            Stay organized and updated.</p>
+                        <a href="{{ url_for('attendance_shortcut') }}"
+                            class="btn btn-white btn-lg px-5 py-3 fw-bold text-primary shadow-lg bg-white border-0"
+                            style="border-radius: 12px; transition: all 0.3s;">
+                            <i class="bi bi-calendar-check-fill me-2"></i>Mark Attendance Now
+                        </a>
+                    </div>
+                    <div class="col-md-5 d-none d-md-block text-center position-relative">
+                        <i class="bi bi-clipboard2-check text-white opacity-25"
+                            style="font-size: 10rem; position: absolute; right: 0; bottom: -50px;"></i>
+                        <div class="glass-orb"
+                            style="position: absolute; right: 50px; top: -20px; width: 150px; height: 150px; background: rgba(255,255,255,0.1); border-radius: 50%; backdrop-filter: blur(5px);">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Decorative shapes -->
+            <div
+                style="position: absolute; top: -100px; right: -100px; width: 300px; height: 300px; background: rgba(255,255,255,0.05); border-radius: 50%;">
+            </div>
+            <div
+                style="position: absolute; bottom: -50px; left: -50px; width: 200px; height: 200px; background: rgba(255,255,255,0.05); border-radius: 50%;">
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mb-5">
+    <div class="col-md-3">
+        <div class="card stats-card h-100 p-4">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h6 class="text-uppercase mb-2 opacity-75">Total Students</h6>
+                    <h2 class="fw-bold mb-0">{{ total_students }}</h2>
+                </div>
+                <div class="fs-1 opacity-50"><i class="bi bi-people"></i></div>
+            </div>
+        </div>
+    </div>
+    {% if current_user.role == 'admin' %}
+    <div class="col-md-3">
+        <div class="card bg-white h-100 p-4 border-start border-4 border-info">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h6 class="text-uppercase mb-2 text-muted">Total Teachers</h6>
+                    <h2 class="fw-bold mb-0">{{ total_teachers }}</h2>
+                </div>
+                <div class="fs-1 text-info opacity-50"><i class="bi bi-person-badge"></i></div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    <div class="col-md-{% if current_user.role == 'admin' %}3{% else %}4{% endif %}">
+        <div class="card bg-white h-100 p-4 border-start border-4 border-warning">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h6 class="text-uppercase mb-2 text-muted">Total Subjects</h6>
+                    <h2 class="fw-bold mb-0">{{ total_subjects }}</h2>
+                </div>
+                <div class="fs-1 text-warning opacity-50"><i class="bi bi-journal-text"></i></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-{% if current_user.role == 'admin' %}3{% else %}4{% endif %}">
+        <div class="card bg-white h-100 p-4 border-start border-4 border-success">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h6 class="text-uppercase mb-2 text-muted">Overall Attendance</h6>
+                    <h2 class="fw-bold mb-0">{% if report_data %}{{ (report_data|sum(attribute='perc') /
+                        report_data|length)|round(1) }}{% else %}0{% endif %}%</h2>
+                </div>
+                <div class="fs-1 text-success opacity-50"><i class="bi bi-check2-circle"></i></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-12">
+        <div class="card p-4">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h5 class="fw-bold mb-0">Quick Student Summary</h5>
+                <a href="{{ url_for('reports') }}" class="btn btn-sm btn-outline-primary">View Full Report</a>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="bg-light">
+                        <tr>
+                            <th>Roll No</th>
+                            <th>Student Name</th>
+                            <th>Department</th>
+                            <th>Attendance %</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for student in report_data %}
+                        <tr>
+                            <td><span class="badge bg-light text-dark border">{{ student.roll_no }}</span></td>
+                            <td class="fw-semibold">{{ student.name }}</td>
+                            <td>{{ student.dept }}</td>
+                            <td>
+                                <div class="d-flex align-items-center">
+                                    <div class="progress flex-grow-1 me-2" style="height: 6px;">
+                                        <div class="progress-bar {% if student.perc < 75 %}bg-danger{% else %}bg-success{% endif %}"
+                                            role="progressbar" style="width: {{ student.perc }}%"></div>
+                                    </div>
+                                    <span class="small fw-bold">{{ student.perc }}%</span>
+                                </div>
+                            </td>
+                            <td>
+                                {% if student.perc < 75 %} <span class="badge bg-danger">Critical</span>
+                                    {% else %}
+                                    <span class="badge bg-success">Good</span>
+                                    {% endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="5" class="text-center py-4 text-muted">No student records found.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

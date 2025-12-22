@@ -1,0 +1,276 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Teachers - EduGate{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-6">
+        <h2 class="fw-bold"><i class="bi bi-person-workspace me-2 text-primary"></i>Teacher Management</h2>
+        <p class="text-muted">Register and manage subject teachers. Assign classes to restrict their view.</p>
+    </div>
+    {% if current_user.role == 'admin' %}
+    <div class="col-md-6 text-md-end">
+        <button class="btn btn-primary shadow-sm" data-bs-toggle="modal" data-bs-target="#addTeacherModal">
+            <i class="bi bi-person-plus me-2"></i>Add New Teacher
+        </button>
+    </div>
+    {% endif %}
+</div>
+
+<div class="card p-0 overflow-hidden shadow-sm border-0">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="bg-light">
+                <tr>
+                    <th class="ps-4">ID</th>
+                    <th>Name</th>
+                    <th>Email / Username</th>
+                    <th>Phone</th>
+                    <th>Assigned Classes</th>
+                    <th class="text-end pe-4">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for teacher in teachers %}
+                <tr>
+                    <td class="ps-4 text-muted">#{{ teacher.id }}</td>
+                    <td class="fw-semibold">{{ teacher.name }}</td>
+                    <td>{{ teacher.email }}</td>
+                    <td>{{ teacher.phone or 'N/A' }}</td>
+                    <td>
+                        {% for cls in teacher.assigned_classes %}
+                        <span class="badge bg-primary-subtle text-primary">{{ cls.name }}</span>
+                        {% else %}
+                        <span class="text-muted small">None</span>
+                        {% endfor %}
+                    </td>
+                    <td class="text-end pe-4">
+                        {% if current_user.role == 'admin' %}
+                        <button class="btn btn-sm btn-outline-info me-2 assign-classes-btn" data-id="{{ teacher.id }}">
+                            <i class="bi bi-journal-plus"></i> Assign
+                        </button>
+                        <button class="btn btn-sm btn-outline-primary me-2 edit-teacher-btn" data-id="{{ teacher.id }}">
+                            <i class="bi bi-pencil-square"></i>
+                        </button>
+                        <a href="{{ url_for('delete_teacher', id=teacher.id) }}" class="btn btn-sm btn-outline-danger"
+                            onclick="return confirm('Remove this teacher?')">
+                            <i class="bi bi-trash"></i>
+                        </a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6" class="text-center py-5">
+                        <i class="bi bi-person-badge fs-1 text-muted d-block mb-3"></i>
+                        <p class="text-muted">No teachers registered yet.</p>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if current_user.role == 'admin' %}
+<!-- Assign Classes Modal -->
+<div class="modal fade" id="assignClassesModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 15px;">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold">Assign Classes to Teacher</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="assignClassesForm">
+                <input type="hidden" name="teacher_id" id="assign_teacher_id">
+                <div class="modal-body p-4">
+                    <p class="text-muted small mb-3">Select the classes this teacher will manage. They will only see
+                        these classes on the attendance page.</p>
+                    <div class="row g-2" id="class_checkboxes">
+                        <!-- Dynamically populated -->
+                    </div>
+                </div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary px-4">Save Assignments</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Dynamic Edit Teacher Modal -->
+<div class="modal fade" id="editTeacherModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 15px;">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold">Edit Teacher Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="editTeacherForm">
+                <input type="hidden" name="id" id="edit_id">
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-uppercase text-muted">Full Name</label>
+                        <input type="text" name="name" id="edit_name" class="form-control bg-light border-0 py-2"
+                            required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-uppercase text-muted">Email Address</label>
+                        <input type="email" name="email" id="edit_email" class="form-control bg-light border-0 py-2"
+                            required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-uppercase text-muted">Phone Number</label>
+                        <input type="text" name="phone" id="edit_phone" class="form-control bg-light border-0 py-2"
+                            placeholder="e.g. +91 9876543210">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-uppercase text-muted">Update Password
+                            (Optional)</label>
+                        <input type="password" name="password" id="edit_password"
+                            class="form-control bg-light border-0 py-2" placeholder="New login password">
+                        <small class="text-muted">Leave blank to keep current password.</small>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary px-4">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Add Teacher Modal -->
+<div class="modal fade" id="addTeacherModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 15px;">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold">Register Teacher</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST">
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-uppercase text-muted">Full Name</label>
+                        <input type="text" name="name" class="form-control bg-light border-0 py-2"
+                            placeholder="e.g. Dr. Ramesh" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-uppercase text-muted">Email Address</label>
+                        <input type="email" name="email" class="form-control bg-light border-0 py-2"
+                            placeholder="e.g. ramesh@college.edu" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-uppercase text-muted">Phone Number</label>
+                        <input type="text" name="phone" class="form-control bg-light border-0 py-2"
+                            placeholder="e.g. +91 9876543210">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-uppercase text-muted">Password</label>
+                        <input type="password" name="password" class="form-control bg-light border-0 py-2"
+                            placeholder="Set a temporary password" required>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary px-4">Register Staff</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+    {% if current_user.role == 'admin' %}
+    document.querySelectorAll('.assign-classes-btn').forEach(btn => {
+        btn.addEventListener('click', function () {
+            const tId = this.getAttribute('data-id');
+            document.getElementById('assign_teacher_id').value = tId;
+
+            // Fetch classes and teacher's current assignments
+            Promise.all([
+                fetch('/api/get_all_classes').then(res => res.json()),
+                fetch(`/api/teachers/${tId}`).then(res => res.json())
+            ]).then(([all_cls, teacher]) => {
+                const container = document.getElementById('class_checkboxes');
+                container.innerHTML = '';
+
+                all_cls.forEach(cls => {
+                    const isChecked = teacher.assigned_classes.includes(cls.id) ? 'checked' : '';
+                    container.innerHTML += `
+                        <div class="col-6">
+                            <div class="form-check p-2 border rounded bg-light">
+                                <input class="form-check-input ms-0 me-2" type="checkbox" name="class_ids" value="${cls.id}" id="cls_${cls.id}" ${isChecked}>
+                                <label class="form-check-label small fw-bold" for="cls_${cls.id}">
+                                    ${cls.name}
+                                </label>
+                            </div>
+                        </div>
+                    `;
+                });
+                const modal = new bootstrap.Modal(document.getElementById('assignClassesModal'));
+                modal.show();
+            }).catch(err => {
+                console.error("Error loading assignment data:", err);
+                alert("Failed to load classes. Please try again.");
+            });
+        });
+    });
+
+    document.getElementById('assignClassesForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+        const tId = document.getElementById('assign_teacher_id').value;
+        const formData = new FormData(this);
+
+        fetch(`/api/assign_classes/${tId}`, {
+            method: 'POST',
+            body: formData
+        }).then(res => res.json()).then(data => {
+            if (data.status === 'success') location.reload();
+        });
+    });
+
+    document.querySelectorAll('.edit-teacher-btn').forEach(btn => {
+        btn.addEventListener('click', function () {
+            const id = this.getAttribute('data-id');
+            fetch(`/api/teachers/${id}`)
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('edit_id').value = data.id;
+                    document.getElementById('edit_name').value = data.name;
+                    document.getElementById('edit_email').value = data.email;
+                    document.getElementById('edit_phone').value = data.phone || '';
+                    document.getElementById('edit_password').value = '';
+                    const editModal = new bootstrap.Modal(document.getElementById('editTeacherModal'));
+                    editModal.show();
+                });
+        });
+    });
+
+    document.getElementById('editTeacherForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+        const id = document.getElementById('edit_id').value;
+        const formData = new FormData(this);
+
+        fetch(`/edit_teacher/${id}`, {
+            method: 'POST',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: formData
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    location.reload();
+                }
+            });
+    });
+    {% endif %}
+</script>
+{% endblock %}

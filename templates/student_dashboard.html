@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% block title %}My Attendance - EduGate{% endblock %}
+
+{% block content %}
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<div class="row mb-4">
+    <div class="col-md-12">
+        <h2 class="fw-bold"><i class="bi bi-person-badge-fill me-2 text-primary"></i>Student Portal</h2>
+        <p class="text-muted">Welcome back, <strong>{{ student.name }}</strong> ({{ student.roll_no }})</p>
+    </div>
+</div>
+
+<!-- Attendance Alert -->
+{% if overall_perc < 75 %} <div class="alert alert-danger border-0 shadow-sm d-flex align-items-center mb-4"
+    role="alert">
+    <i class="bi bi-exclamation-triangle-fill fs-4 me-3"></i>
+    <div>
+        <h5 class="alert-heading fw-bold mb-1">Attendance Alert: Action Required</h5>
+        <p class="mb-0">Your current percentage is <strong>{{ overall_perc }}%</strong>. Minimum 75% required for
+            examination eligibility.</p>
+    </div>
+    </div>
+    {% else %}
+    <div class="alert alert-success border-0 shadow-sm d-flex align-items-center mb-4" role="alert">
+        <i class="bi bi-check-circle-fill fs-4 me-3"></i>
+        <div>
+            <h5 class="alert-heading fw-bold mb-1">Attendance Status: Healthy</h5>
+            <p class="mb-0">Excellent! Your attendance is <strong>{{ overall_perc }}%</strong>. You are currently
+                meeting the eligibility criteria.</p>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="row g-4 mb-4">
+        <!-- Stats Cards -->
+        <div class="col-md-8">
+            <div class="row g-4">
+                <div class="col-md-6">
+                    <div class="card bg-white h-100 p-4 border-start border-4 border-primary">
+                        <h6 class="text-uppercase mb-2 text-muted small fw-bold">Total Classes Held</h6>
+                        <h2 class="fw-bold mb-0 text-dark">{{ total_held }}</h2>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card bg-white h-100 p-4 border-start border-4 border-success">
+                        <h6 class="text-uppercase mb-2 text-muted small fw-bold">Total Attended</h6>
+                        <h2 class="fw-bold mb-0 text-success">{{ total_present }}</h2>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card bg-white h-100 p-4 border-start border-4 border-danger">
+                        <h6 class="text-uppercase mb-2 text-muted small fw-bold">Total Absent</h6>
+                        <h2 class="fw-bold mb-0 text-danger">{{ total_absent }}</h2>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card stats-card h-100 p-4">
+                        <h6 class="text-uppercase mb-2 opacity-75 small fw-bold">Percentage</h6>
+                        <h2 class="fw-bold mb-0">{{ overall_perc }}%</h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pie Chart Card -->
+        <div class="col-md-4">
+            <div class="card h-100 p-4 text-center">
+                <h5 class="fw-bold mb-4">Attendance Ratio</h5>
+                <div style="max-width: 300px; margin: 0 auto;">
+                    <canvas id="attendanceChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Subject Wise Table -->
+    <div class="card p-4 border-0 shadow-sm mb-5">
+        <h5 class="fw-bold mb-4">Subject-wise Breakdown</h5>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead class="bg-light">
+                    <tr>
+                        <th class="ps-3">Subject Name</th>
+                        <th>Code</th>
+                        <th class="text-center">Total Classes</th>
+                        <th class="text-center">Attended</th>
+                        <th style="width: 250px;">Status</th>
+                        <th class="text-end pe-3">%</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for sub in subject_stats %}
+                    <tr>
+                        <td class="ps-3 fw-bold">{{ sub.name }}</td>
+                        <td><span class="badge bg-light text-dark border">{{ sub.code }}</span></td>
+                        <td class="text-center">{{ sub.total }}</td>
+                        <td class="text-center text-primary fw-bold">{{ sub.present }}</td>
+                        <td>
+                            <div class="progress" style="height: 8px; border-radius: 4px;">
+                                <div class="progress-bar {% if sub.perc < 75 %}bg-danger{% elif sub.perc < 85 %}bg-warning{% else %}bg-success{% endif %}"
+                                    role="progressbar" style="width: {{ sub.perc }}%"></div>
+                            </div>
+                        </td>
+                        <td class="text-end pe-3 fw-bold">{{ sub.perc }}%</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const ctx = document.getElementById('attendanceChart').getContext('2d');
+            const attendanceChart = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: ['Present', 'Absent'],
+                    datasets: [{
+                        data: [{{ total_present }}, {{ total_absent }}],
+                backgroundColor: [
+                    '#2ecc71', // Green for Present
+                    '#e74c3c'  // Red for Absent
+                ],
+                borderWidth: 0,
+                hoverOffset: 10
+            }]
+            },
+            options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        usePointStyle: true,
+                        padding: 20,
+                        font: {
+                            size: 12,
+                            family: "'Inter', sans-serif"
+                        }
+                    }
+                }
+            }
+        }
+        });
+    });
+    </script>
+    {% endblock %}
