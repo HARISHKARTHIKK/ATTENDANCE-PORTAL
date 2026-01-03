@@ -98,6 +98,86 @@
     </div>
 </div>
 
+{% if current_user.role == 'in_charge' %}
+<div class="row g-4 mb-5">
+    <div class="col-md-12">
+        <h4 class="fw-bold mb-3">Class In-charge Overview: {{ in_charge_data.class_name }}</h4>
+    </div>
+    <div class="col-md-6">
+        <div class="card border-0 shadow-lg text-white"
+            style="background: linear-gradient(45deg, #2ecc71, #27ae60); border-radius: 20px;">
+            <div class="card-body p-5">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="text-uppercase opacity-75 mb-2">Today's Present</h6>
+                        <h1 class="display-3 fw-bold mb-0">{{ in_charge_data.present }}</h1>
+                    </div>
+                    <i class="bi bi-person-check-fill opacity-25" style="font-size: 5rem;"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card border-0 shadow-lg text-white"
+            style="background: linear-gradient(45deg, #e74c3c, #c0392b); border-radius: 20px;">
+            <div class="card-body p-5">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="text-uppercase opacity-75 mb-2">Today's Absent</h6>
+                        <h1 class="display-3 fw-bold mb-0">{{ in_charge_data.absent }}</h1>
+                    </div>
+                    <i class="bi bi-person-x-fill opacity-25" style="font-size: 5rem;"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% elif current_user.role in ['hod', 'admin', 'teacher'] %}
+<div class="row mb-5">
+    <div class="col-md-12">
+        <div class="card border-0 shadow-sm p-4" style="border-radius: 15px;">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h5 class="fw-bold mb-0">Today's Attendance Summary {% if current_user.role == 'teacher' %}{%
+                    else %}(HOD Overview){% endif %}</h5>
+                <span class="badge bg-primary px-3 py-2">{{ today_date }}</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="bg-light">
+                        <tr>
+                            <th>Class Name</th>
+                            <th>Total Present</th>
+                            <th>Total Absent</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in hod_summary %}
+                        <tr>
+                            <td class="fw-bold text-primary">{{ item.class_name }}</td>
+                            <td><span class="badge bg-success" style="font-size: 0.9rem;">{{ item.present }}
+                                    Present</span></td>
+                            <td><span class="badge bg-danger" style="font-size: 0.9rem;">{{ item.absent }} Absent</span>
+                            </td>
+                            <td>
+                                {% if item.present > 0 %}
+                                <span class="text-success small fw-bold"><i class="bi bi-circle-fill me-1"></i>
+                                    Updated</span>
+                                {% else %}
+                                <span class="text-muted small">Pending</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+
 <div class="row">
     <div class="col-md-12">
         <div class="card p-4">

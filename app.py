@@ -14,7 +14,7 @@ import io
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not current_user.is_authenticated or current_user.role != 'admin':
+        if not current_user.is_authenticated or current_user.role not in ['admin', 'hod']:
             flash('Unauthorized Access! HOD/Admin only.', 'danger')
             return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
@@ -23,7 +23,7 @@ def admin_required(f):
 def teacher_allowed(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not current_user.is_authenticated or current_user.role not in ['admin', 'teacher']:
+        if not current_user.is_authenticated or current_user.role not in ['admin', 'teacher', 'in_charge', 'hod']:
             flash('Unauthorized Access! Staff only.', 'danger')
             return redirect(url_for('student_dashboard' if current_user.role == 'student' else 'login'))
         return f(*args, **kwargs)
@@ -72,7 +72,7 @@ def dashboard():
     
     total_students = Student.query.count()
     total_subjects = Subject.query.count()
-    total_teachers = User.query.filter_by(role='teacher').count()
+    total_teachers = User.query.filter(User.role.in_(['teacher', 'in_charge', 'hod'])).count()
     
     # Simple stats for dashboard
     students = Student.query.all()
@@ -86,11 +86,55 @@ def dashboard():
             'perc': perc
         })
     
+    today = datetime.utcnow().date()
+    in_charge_data = None
+    hod_summary = []
+
+    if current_user.role == 'in_charge':
+        cls = Classroom.query.filter_by(name=current_user.assigned_class).first()
+        if cls:
+            present_today = Attendance.query.join(Student).filter(
+                Student.class_id == cls.id,
+                Attendance.date == today,
+                Attendance.status == 'Present'
+            ).count()
+            absent_today = Attendance.query.join(Student).filter(
+                Student.class_id == cls.id,
+                Attendance.date == today,
+                Attendance.status == 'Absent'
+            ).count()
+            in_charge_data = {'present': present_today, 'absent': absent_today, 'class_name': cls.name}
+    
+    # HOD/Admin see summary for all classes, Teachers see summary for their assigned class
+    if current_user.role in ['hod', 'admin', 'teacher']:
+        if current_user.role == 'teacher':
+            # Teachers only see their assigned class
+            classes_to_show = Classroom.query.filter_by(name=current_user.assigned_class).all() if current_user.assigned_class else []
+        else:
+            # HOD/Admin see everything
+            classes_to_show = Classroom.query.all()
+
+        for cls in classes_to_show:
+            p = Attendance.query.join(Student).filter(
+                Student.class_id == cls.id, 
+                Attendance.date == today, 
+                Attendance.status == 'Present'
+            ).count()
+            a = Attendance.query.join(Student).filter(
+                Student.class_id == cls.id, 
+                Attendance.date == today, 
+                Attendance.status == 'Absent'
+            ).count()
+            hod_summary.append({'class_name': cls.name, 'present': p, 'absent': a})
+
     return render_template('dashboard.html', 
                            total_students=total_students, 
                            total_subjects=total_subjects,
                            total_teachers=total_teachers,
-                           report_data=report_data)
+                           report_data=report_data,
+                           in_charge_data=in_charge_data,
+                           hod_summary=hod_summary,
+                           today_date=today.strftime('%d %b, %Y'))
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():

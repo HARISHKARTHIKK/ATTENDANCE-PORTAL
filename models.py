@@ -21,7 +21,8 @@ class User(UserMixin, db.Model):
     email = db.Column(db.String(120), unique=True, nullable=True) # Official Email
     username = db.Column(db.String(100), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
-    role = db.Column(db.String(20), default='admin') # 'admin', 'teacher', 'student'
+    role = db.Column(db.String(20), default='teacher') # 'teacher', 'in_charge', 'hod', 'student'
+    assigned_class = db.Column(db.String(100), nullable=True) # Class Name for In-charges
     phone = db.Column(db.String(15), nullable=True)
     student_id = db.Column(db.Integer, db.ForeignKey('student.id'), nullable=True)
     
