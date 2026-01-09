@@ -4,8 +4,9 @@
 
 {% block content %}
 <div class="row mb-4">
-    <div class="col-md-12">
-        <h2 class="fw-bold mb-0"><i class="bi bi-grid-1x2-fill me-2 text-primary"></i>Dashboard overview</h2>
+    <div class="col-md-12 text-center text-md-start">
+        <h2 class="fw-bold mb-0 mt-4 mt-md-0"><i class="bi bi-grid-1x2-fill me-2 text-primary"></i>Dashboard overview
+        </h2>
         <p class="text-muted">Welcome back, <strong>{{ current_user.name }}</strong>! Monitoring student progress in
             real-time.</p>
     </div>
@@ -16,14 +17,14 @@
     <div class="col-md-12">
         <div class="card border-0 shadow-lg overflow-hidden position-relative"
             style="background: linear-gradient(135deg, #4361ee 0%, #3f37c9 100%); border-radius: 20px;">
-            <div class="card-body p-5">
+            <div class="card-body p-4 p-md-5">
                 <div class="row align-items-center">
-                    <div class="col-md-7 position-relative" style="z-index: 2;">
+                    <div class="col-md-7 text-center text-md-start position-relative" style="z-index: 2;">
                         <h1 class="display-5 fw-bold text-white mb-3">Record Attendance</h1>
                         <p class="text-white-50 fs-5 mb-4">Select your subject and mark today's attendance in seconds.
                             Stay organized and updated.</p>
                         <a href="{{ url_for('attendance_shortcut') }}"
-                            class="btn btn-white btn-lg px-5 py-3 fw-bold text-primary shadow-lg bg-white border-0"
+                            class="btn btn-white btn-lg px-4 px-md-5 py-3 fw-bold text-primary shadow-lg bg-white border-0"
                             style="border-radius: 12px; transition: all 0.3s;">
                             <i class="bi bi-calendar-check-fill me-2"></i>Mark Attendance Now
                         </a>
@@ -49,11 +50,11 @@
 </div>
 
 <div class="row g-4 mb-5">
-    <div class="col-md-3">
-        <div class="card stats-card h-100 p-4">
+    <div class="col-12 col-md-6 col-lg-3">
+        <div class="card stats-card h-100 p-3 p-md-4">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h6 class="text-uppercase mb-2 opacity-75">Total Students</h6>
+                    <h6 class="text-uppercase mb-2 opacity-75 small">Total Students</h6>
                     <h2 class="fw-bold mb-0">{{ total_students }}</h2>
                 </div>
                 <div class="fs-1 opacity-50"><i class="bi bi-people"></i></div>
@@ -61,11 +62,11 @@
         </div>
     </div>
     {% if current_user.role == 'admin' %}
-    <div class="col-md-3">
-        <div class="card bg-white h-100 p-4 border-start border-4 border-info">
+    <div class="col-12 col-md-6 col-lg-3">
+        <div class="card bg-white h-100 p-3 p-md-4 border-start border-4 border-info">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h6 class="text-uppercase mb-2 text-muted">Total Teachers</h6>
+                    <h6 class="text-uppercase mb-2 text-muted small">Total Teachers</h6>
                     <h2 class="fw-bold mb-0">{{ total_teachers }}</h2>
                 </div>
                 <div class="fs-1 text-info opacity-50"><i class="bi bi-person-badge"></i></div>
@@ -73,22 +74,22 @@
         </div>
     </div>
     {% endif %}
-    <div class="col-md-{% if current_user.role == 'admin' %}3{% else %}4{% endif %}">
-        <div class="card bg-white h-100 p-4 border-start border-4 border-warning">
+    <div class="col-12 col-md-6 col-lg-{% if current_user.role == 'admin' %}3{% else %}4{% endif %}">
+        <div class="card bg-white h-100 p-3 p-md-4 border-start border-4 border-warning">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h6 class="text-uppercase mb-2 text-muted">Total Subjects</h6>
+                    <h6 class="text-uppercase mb-2 text-muted small">Total Subjects</h6>
                     <h2 class="fw-bold mb-0">{{ total_subjects }}</h2>
                 </div>
                 <div class="fs-1 text-warning opacity-50"><i class="bi bi-journal-text"></i></div>
             </div>
         </div>
     </div>
-    <div class="col-md-{% if current_user.role == 'admin' %}3{% else %}4{% endif %}">
-        <div class="card bg-white h-100 p-4 border-start border-4 border-success">
+    <div class="col-12 col-md-6 col-lg-{% if current_user.role == 'admin' %}3{% else %}4{% endif %}">
+        <div class="card bg-white h-100 p-3 p-md-4 border-start border-4 border-success">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h6 class="text-uppercase mb-2 text-muted">Overall Attendance</h6>
+                    <h6 class="text-uppercase mb-2 text-muted small">Overall Attendance</h6>
                     <h2 class="fw-bold mb-0">{% if report_data %}{{ (report_data|sum(attribute='perc') /
                         report_data|length)|round(1) }}{% else %}0{% endif %}%</h2>
                 </div>
@@ -103,30 +104,30 @@
     <div class="col-md-12">
         <h4 class="fw-bold mb-3">Class In-charge Overview: {{ in_charge_data.class_name }}</h4>
     </div>
-    <div class="col-md-6">
+    <div class="col-12 col-md-6">
         <div class="card border-0 shadow-lg text-white"
             style="background: linear-gradient(45deg, #2ecc71, #27ae60); border-radius: 20px;">
-            <div class="card-body p-5">
+            <div class="card-body p-4 p-md-5">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <h6 class="text-uppercase opacity-75 mb-2">Today's Present</h6>
+                        <h6 class="text-uppercase opacity-75 mb-2 small">Today's Present</h6>
                         <h1 class="display-3 fw-bold mb-0">{{ in_charge_data.present }}</h1>
                     </div>
-                    <i class="bi bi-person-check-fill opacity-25" style="font-size: 5rem;"></i>
+                    <i class="bi bi-person-check-fill opacity-25" style="font-size: 4rem;"></i>
                 </div>
             </div>
         </div>
     </div>
-    <div class="col-md-6">
+    <div class="col-12 col-md-6">
         <div class="card border-0 shadow-lg text-white"
             style="background: linear-gradient(45deg, #e74c3c, #c0392b); border-radius: 20px;">
-            <div class="card-body p-5">
+            <div class="card-body p-4 p-md-5">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <h6 class="text-uppercase opacity-75 mb-2">Today's Absent</h6>
+                        <h6 class="text-uppercase opacity-75 mb-2 small">Today's Absent</h6>
                         <h1 class="display-3 fw-bold mb-0">{{ in_charge_data.absent }}</h1>
                     </div>
-                    <i class="bi bi-person-x-fill opacity-25" style="font-size: 5rem;"></i>
+                    <i class="bi bi-person-x-fill opacity-25" style="font-size: 4rem;"></i>
                 </div>
             </div>
         </div>
@@ -134,12 +135,12 @@
 </div>
 {% elif current_user.role in ['hod', 'admin', 'teacher'] %}
 <div class="row mb-5">
-    <div class="col-md-12">
-        <div class="card border-0 shadow-sm p-4" style="border-radius: 15px;">
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <h5 class="fw-bold mb-0">Today's Attendance Summary {% if current_user.role == 'teacher' %}{%
+    <div class="col-12 col-md-12">
+        <div class="card border-0 shadow-sm p-3 p-md-4" style="border-radius: 15px;">
+            <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4">
+                <h5 class="fw-bold mb-3 mb-md-0">Today's Attendance Summary {% if current_user.role == 'teacher' %}{%
                     else %}(HOD Overview){% endif %}</h5>
-                <span class="badge bg-primary px-3 py-2">{{ today_date }}</span>
+                <span class="badge bg-primary px-3 py-2 align-self-start">{{ today_date }}</span>
             </div>
             <div class="table-responsive">
                 <table class="table table-hover align-middle">
@@ -179,11 +180,12 @@
 
 
 <div class="row">
-    <div class="col-md-12">
-        <div class="card p-4">
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <h5 class="fw-bold mb-0">Quick Student Summary</h5>
-                <a href="{{ url_for('reports') }}" class="btn btn-sm btn-outline-primary">View Full Report</a>
+    <div class="col-12 col-md-12">
+        <div class="card p-3 p-md-4">
+            <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4">
+                <h5 class="fw-bold mb-3 mb-md-0">Quick Student Summary</h5>
+                <a href="{{ url_for('reports') }}" class="btn btn-sm btn-outline-primary align-self-start">View Full
+                    Report</a>
             </div>
             <div class="table-responsive">
                 <table class="table table-hover align-middle">
