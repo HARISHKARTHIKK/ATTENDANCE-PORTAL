@@ -34,8 +34,8 @@ load_dotenv()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', secrets.token_hex(16))
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///attendance.db')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# supabase or local sqlite settings removed for firebase
+
 
 db.init_app(app)
 
@@ -45,7 +45,8 @@ login_manager.init_app(app)
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    return User.query.get(user_id)
+
 
 # Create database and default admin (HOD)
 with app.app_context():
@@ -63,6 +64,10 @@ with app.app_context():
         db.session.commit()
 
 # --- Routes ---
+@app.route('/health')
+def health():
+    return "OK", 200
+
 
 @app.route('/')
 @login_required
@@ -93,16 +98,17 @@ def dashboard():
     if current_user.role == 'in_charge':
         cls = Classroom.query.filter_by(name=current_user.assigned_class).first()
         if cls:
-            present_today = Attendance.query.join(Student).filter(
-                Student.class_id == cls.id,
-                Attendance.date == today,
-                Attendance.status == 'Present'
+            present_today = Attendance.query.filter_by(
+                class_id=cls.id,
+                date=datetime.combine(today, datetime.min.time()),
+                status='Present'
             ).count()
-            absent_today = Attendance.query.join(Student).filter(
-                Student.class_id == cls.id,
-                Attendance.date == today,
-                Attendance.status == 'Absent'
+            absent_today = Attendance.query.filter_by(
+                class_id=cls.id,
+                date=datetime.combine(today, datetime.min.time()),
+                status='Absent'
             ).count()
+
             in_charge_data = {'present': present_today, 'absent': absent_today, 'class_name': cls.name}
     
     # HOD/Admin see summary for all classes, Teachers see summary for their assigned class
@@ -115,16 +121,17 @@ def dashboard():
             classes_to_show = Classroom.query.all()
 
         for cls in classes_to_show:
-            p = Attendance.query.join(Student).filter(
-                Student.class_id == cls.id, 
-                Attendance.date == today, 
-                Attendance.status == 'Present'
+            p = Attendance.query.filter_by(
+                class_id=cls.id, 
+                date=datetime.combine(today, datetime.min.time()), 
+                status='Present'
             ).count()
-            a = Attendance.query.join(Student).filter(
-                Student.class_id == cls.id, 
-                Attendance.date == today, 
-                Attendance.status == 'Absent'
+            a = Attendance.query.filter_by(
+                class_id=cls.id, 
+                date=datetime.combine(today, datetime.min.time()), 
+                status='Absent'
             ).count()
+
             hod_summary.append({'class_name': cls.name, 'present': p, 'absent': a})
 
     return render_template('dashboard.html', 
@@ -199,7 +206,8 @@ def classes():
     all_classes = Classroom.query.all()
     return render_template('classes.html', classes=all_classes)
 
-@app.route('/delete_class/<int:id>')
+@app.route('/delete_class/<id>')
+
 @login_required
 @admin_required
 def delete_class(id):
@@ -209,7 +217,8 @@ def delete_class(id):
     flash('Class deleted!', 'info')
     return redirect(url_for('classes'))
 
-@app.route('/edit_class/<int:id>', methods=['POST'])
+@app.route('/edit_class/<id>', methods=['POST'])
+
 @login_required
 @admin_required
 def edit_class(id):
@@ -237,12 +246,14 @@ def api_get_classes(dept):
     classes = Classroom.query.filter_by(dept=dept).all()
     return jsonify([{'id': c.id, 'name': c.name} for c in classes])
 
-@app.route('/api/get_semesters/<int:class_id>')
+@app.route('/api/get_semesters/<class_id>')
+
 @login_required
 def api_get_semesters(class_id):
     # This might be fixed or dynamic; for now return 1-8 but could be limited by class year
     return jsonify([{'id': i, 'name': f'Semester {i}'} for i in range(1, 9)])
-@app.route('/api/get_class_details/<int:class_id>')
+@app.route('/api/get_class_details/<class_id>')
+
 @login_required
 def get_class_details(class_id):
     cls = Classroom.query.get_or_404(class_id)
@@ -254,7 +265,8 @@ def get_class_details(class_id):
         'year': cls.year
     })
 
-@app.route('/api/get_students_by_class/<int:class_id>')
+@app.route('/api/get_students_by_class/<class_id>')
+
 @login_required
 def get_students_by_class(class_id):
     students = Student.query.filter_by(class_id=class_id).all()
@@ -270,7 +282,8 @@ def get_all_classes():
     classes = Classroom.query.all()
     return jsonify([{'id': c.id, 'name': c.name, 'dept': c.dept} for c in classes])
 
-@app.route('/api/get_subjects_by_semester/<int:semester_id>/<dept>')
+@app.route('/api/get_subjects_by_semester/<semester_id>/<dept>')
+
 @login_required
 def get_subjects_by_semester(semester_id, dept):
     subjects = Subject.query.filter_by(semester=semester_id, dept=dept).all()
@@ -280,7 +293,8 @@ def get_subjects_by_semester(semester_id, dept):
         'code': s.code
     } for s in subjects])
 
-@app.route('/delete_teacher/<int:id>')
+@app.route('/delete_teacher/<id>')
+
 @login_required
 @admin_required
 def delete_teacher(id):
@@ -291,7 +305,8 @@ def delete_teacher(id):
         flash('Teacher removed!', 'info')
     return redirect(url_for('teachers'))
 
-@app.route('/edit_teacher/<int:id>', methods=['POST'])
+@app.route('/edit_teacher/<id>', methods=['POST'])
+
 @login_required
 def edit_teacher(id):
     if current_user.role != 'admin' and current_user.id != id:
@@ -316,7 +331,8 @@ def edit_teacher(id):
     return redirect(url_for('teachers'))
 
 
-@app.route('/api/assign_classes/<int:teacher_id>', methods=['POST'])
+@app.route('/api/assign_classes/<teacher_id>', methods=['POST'])
+
 @login_required
 @admin_required
 def assign_classes(teacher_id):
@@ -333,7 +349,8 @@ def assign_classes(teacher_id):
     db.session.commit()
     return jsonify({'status': 'success', 'message': 'Classes assigned successfully!'})
 
-@app.route('/api/teachers/<int:id>', methods=['GET'])
+@app.route('/api/teachers/<id>', methods=['GET'])
+
 @login_required
 @admin_required
 def get_teacher_data(id):
@@ -395,7 +412,6 @@ def students():
         # Create Student Record
         new_student = Student(name=name, roll_no=roll_no, dept=dept, phone=phone, semester=semester, class_id=class_id)
         db.session.add(new_student)
-        db.session.flush() # To get the student.id
         
         # Create User Login for Student
         default_pw = generate_password_hash('student123', method='pbkdf2:sha256')
@@ -403,6 +419,7 @@ def students():
         db.session.add(new_user)
         
         db.session.commit()
+
         flash(f'Student {name} added! Login: {roll_no} / student123', 'success')
         return redirect(url_for('students'))
     
@@ -410,7 +427,8 @@ def students():
     all_classes = Classroom.query.all()
     return render_template('students.html', students=all_students, classes=all_classes)
 
-@app.route('/delete_student/<int:id>')
+@app.route('/delete_student/<id>')
+
 @login_required
 @admin_required
 def delete_student(id):
@@ -424,7 +442,8 @@ def delete_student(id):
     flash('Student deleted!', 'info')
     return redirect(url_for('students'))
 
-@app.route('/edit_student/<int:id>', methods=['POST'])
+@app.route('/edit_student/<id>', methods=['POST'])
+
 @login_required
 @admin_required
 def edit_student(id):
@@ -460,7 +479,8 @@ def edit_student(id):
     flash('Student updated successfully!', 'success')
     return redirect(url_for('students'))
 
-@app.route('/api/students/<int:id>', methods=['GET'])
+@app.route('/api/students/<id>', methods=['GET'])
+
 @login_required
 @admin_required
 def get_student(id):
@@ -543,7 +563,9 @@ def bulk_upload_students():
                     # Create new student record
                     new_student = Student(name=name, roll_no=roll_no, dept=dept, phone=phone, semester=semester, class_id=class_id)
                     db.session.add(new_student)
-                    db.session.flush() # Get new_student.id
+
+
+
                     
                     # Check if User already exists (orphaned account)
                     existing_user = User.query.filter_by(username=roll_no).first()
@@ -622,14 +644,16 @@ def subjects():
     
     all_subjects = query.all()
     all_teachers = User.query.filter_by(role='teacher').all()
-    departments = [d[0] for d in db.session.query(Classroom.dept).distinct().all()]
+    departments = list(set([c.dept for c in Classroom.query.all()]))
+
     if not departments:
         departments = ['Computer Science', 'Electronics', 'Mechanical', 'Civil']
         
     return render_template('subjects.html', subjects=all_subjects, teachers=all_teachers, 
                           selected_semester=selected_semester, departments=departments)
 
-@app.route('/delete_subject/<int:id>')
+@app.route('/delete_subject/<id>')
+
 @login_required
 @admin_required
 def delete_subject(id):
@@ -643,7 +667,8 @@ def delete_subject(id):
         flash(f'Error deleting subject: {str(e)}', 'danger')
     return redirect(url_for('subjects'))
 
-@app.route('/edit_subject/<int:id>', methods=['POST'])
+@app.route('/edit_subject/<id>', methods=['POST'])
+
 @login_required
 @admin_required
 def edit_subject(id):
@@ -663,7 +688,8 @@ def edit_subject(id):
     flash('Subject updated successfully!', 'success')
     return redirect(url_for('subjects'))
 
-@app.route('/api/subjects/get/<int:id>', methods=['GET'])
+@app.route('/api/subjects/get/<id>', methods=['GET'])
+
 @login_required
 @admin_required
 def get_subject_data_api(id):
@@ -708,11 +734,13 @@ def attendance():
                 new_record = Attendance(
                     student_id=student.id,
                     subject_id=subject_id,
+                    class_id=class_id,
                     teacher_id=current_user.id,
                     date=date_obj,
                     status=status
                 )
                 db.session.add(new_record)
+
         
         db.session.commit()
         flash('Attendance marked successfully!', 'success')
@@ -722,7 +750,8 @@ def attendance():
                          classes=all_classes, 
                          today=datetime.utcnow().strftime('%Y-%m-%d'))
 
-@app.route('/get_students_by_subject/<int:subject_id>')
+@app.route('/get_students_by_subject/<subject_id>')
+
 @login_required
 @teacher_allowed
 def get_students_by_subject(subject_id):
@@ -736,7 +765,8 @@ def get_students_by_subject(subject_id):
         'roll_no': s.roll_no
     } for s in students])
 
-@app.route('/api/subjects/<int:semester_id>')
+@app.route('/api/subjects/<semester_id>')
+
 @login_required
 def api_subjects_by_semester(semester_id):
     subjects = Subject.query.filter_by(semester=semester_id).all()
@@ -761,10 +791,11 @@ def attendance_shortcut():
 def reports():
     # Filtering parameters
     dept = request.args.get('dept')
-    class_id = request.args.get('class_id', type=int)
+    class_id = request.args.get('class_id')
     semester = request.args.get('semester', type=int)
-    subject_id = request.args.get('subject_id', type=int)
-    teacher_id = request.args.get('teacher_id', type=int)
+    subject_id = request.args.get('subject_id')
+    teacher_id = request.args.get('teacher_id')
+
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
 
@@ -795,7 +826,8 @@ def reports():
     if current_user.role == 'teacher':
         # Limit to assigned classes' students
         assigned_ids = [c.id for c in current_user.assigned_classes]
-        attendance_query = attendance_query.join(Student).filter(Student.class_id.in_(assigned_ids))
+        attendance_query = attendance_query.filter_by(class_id=assigned_ids) # Or handle in Python if needed
+
 
     recent_attendance = attendance_query.order_by(Attendance.date.desc()).limit(200).all()
     
@@ -803,7 +835,8 @@ def reports():
     all_subjects = Subject.query.all()
     all_classes = Classroom.query.all() if current_user.role == 'admin' else current_user.assigned_classes.all()
     all_teachers = User.query.filter_by(role='teacher').all()
-    departments = [d[0] for d in db.session.query(Classroom.dept).distinct().all()]
+    departments = list(set([c.dept for c in Classroom.query.all()]))
+
 
     report_data = []
     for s in students:
@@ -827,35 +860,39 @@ def export_excel():
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
 
-    # Base Query with SQL Join
-    query = db.session.query(
-        Student.name.label('Student Name'),
-        Student.roll_no.label('Roll No'),
-        Student.dept.label('Department'),
-        Subject.name.label('Subject'),
-        Attendance.date.label('Date'),
-        Attendance.status.label('Status')
-    ).join(Student, Attendance.student_id == Student.id)\
-     .join(Subject, Attendance.subject_id == Subject.id)
-
-    # Dynamic Filtering
-    if subject_id:
-        query = query.filter(Attendance.subject_id == subject_id)
-    if dept:
-        query = query.filter(Student.dept == dept)
-    if start_date:
-        query = query.filter(Attendance.date >= datetime.strptime(start_date, '%Y-%m-%d').date())
-    if end_date:
-        query = query.filter(Attendance.date <= datetime.strptime(end_date, '%Y-%m-%d').date())
-
-    results = query.all()
+    # Fetch all data and filter in Python for simplicity in migration
+    att_list = Attendance.query.all()
+    results = []
+    
+    for att in att_list:
+        # Apply filters
+        if subject_id and str(att.subject_id) != str(subject_id): continue
+        if start_date and att.date.date() < datetime.strptime(start_date, '%Y-%m-%d').date(): continue
+        if end_date and att.date.date() > datetime.strptime(end_date, '%Y-%m-%d').date(): continue
+        
+        student = Student.query.get(att.student_id)
+        if not student: continue
+        if dept and student.dept != dept: continue
+        
+        subject = Subject.query.get(att.subject_id)
+        
+        results.append({
+            'Student Name': student.name,
+            'Roll No': student.roll_no,
+            'Department': student.dept,
+            'Subject': subject.name if subject else 'Unknown',
+            'Date': att.date,
+            'Status': att.status
+        })
 
     if not results:
         flash("No data found for the selected criteria.", "warning")
         return redirect(url_for('reports'))
 
+
     # Create DataFrame
-    df = pd.DataFrame([r._asdict() for r in results])
+    df = pd.DataFrame(results)
+
     
     # Format Date
     if 'Date' in df.columns:

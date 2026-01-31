@@ -7,3 +7,4 @@ openpyxl
 psycopg2-binary
 python-dotenv
 gunicorn
+firebase-admin
