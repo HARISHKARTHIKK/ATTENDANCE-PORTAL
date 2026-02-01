@@ -578,10 +578,19 @@ def bulk_upload_students():
     if file and (file.filename.endswith('.csv') or file.filename.endswith('.xlsx')):
         try:
             if file.filename.endswith('.csv'):
-                stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
+                # Try UTF-8 first, fallback to latin1 for Excel-generated CSVs
+                try:
+                    content = file.stream.read().decode("UTF-8")
+                except UnicodeDecodeError:
+                    file.stream.seek(0)
+                    content = file.stream.read().decode("latin1")
+                stream = io.StringIO(content, newline=None)
                 df = pd.read_csv(stream)
             else:
                 df = pd.read_excel(file)
+            
+            # Clean column names (strip whitespace)
+            df.columns = [str(c).strip() for c in df.columns]
             
             # Required columns: Name, Roll No, Dept, Class_Name
             required_cols = ['Name', 'Roll No', 'Dept', 'Class_Name']
@@ -591,9 +600,9 @@ def bulk_upload_students():
                     return redirect(url_for('students'))
             
             # Pre-fetch for performance (O(1) lookups instead of O(N) queries)
-            all_classes = {c.name: c for c in Classroom.query.all()}
-            existing_roll_nos = {s.roll_no for s in Student.query.all()}
-            existing_users = {u.username: u for u in User.query.all()}
+            all_classes = {str(c.name).strip(): c for c in Classroom.query.all()}
+            existing_roll_nos = {str(s.roll_no).strip() for s in Student.query.all()}
+            existing_users = {str(u.username).strip(): u for u in User.query.all()}
             
             db_conn = get_db()
             batch = db_conn.batch()
@@ -610,14 +619,44 @@ def bulk_upload_students():
                 phone = str(row.get('Phone', '')) if 'Phone' in df.columns else None
                 class_name = str(row.get('Class_Name', '')).strip()
                 
-                if roll_no == 'nan' or name == 'nan' or roll_no in existing_roll_nos:
+                if not roll_no or roll_no.lower() == 'nan' or not name or name.lower() == 'nan':
+                    skipped_count += 1
+                    continue
+                
+                if roll_no in existing_roll_nos:
                     skipped_count += 1
                     continue
 
                 cls = all_classes.get(class_name)
                 if not cls:
-                    skipped_count += 1
-                    continue
+                    # Try case-insensitive match
+                    cls = next((c for n, c in all_classes.items() if n.lower() == class_name.lower()), None)
+                
+                if not cls:
+                    # Auto-create classroom if missing (Rectify)
+                    try:
+                        new_cls_ref = db_conn.collection(Classroom.__collection__).document()
+                        
+                        # Infer year/semester (I=1/1, II=2/3, III=3/5, IV=4/7)
+                        year, sem = "1", "1"
+                        if "IV" in class_name: year, sem = "4", "7"
+                        elif "III" in class_name: year, sem = "3", "5"
+                        elif "II" in class_name: year, sem = "2", "3"
+                        
+                        cls = Classroom(
+                            id=new_cls_ref.id,
+                            name=class_name,
+                            dept=dept,
+                            year=year,
+                            current_semester=sem
+                        )
+                        batch.set(new_cls_ref, cls.to_dict())
+                        batch_ops += 1
+                        all_classes[class_name] = cls # Add to cache for next rows
+                    except Exception as e:
+                        print(f"Error creating class {class_name}: {e}")
+                        skipped_count += 1
+                        continue
 
                 try:
                     # 1. Pre-generate Student ID for linking
