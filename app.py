@@ -109,7 +109,9 @@ def dashboard():
     
     total_students = Student.query.count()
     total_subjects = Subject.query.count()
-    total_teachers = User.query.filter(User.role.in_(['teacher', 'in_charge', 'hod'])).count()
+    total_classes = Classroom.query.count()
+    # Use filter_by for 'in' queries (passing a list triggers 'in')
+    total_teachers = User.query.filter_by(role=['teacher', 'in_charge', 'hod']).count()
     
     # Simple stats for dashboard
     students = Student.query.all()
@@ -169,6 +171,7 @@ def dashboard():
     return render_template('dashboard.html', 
                            total_students=total_students, 
                            total_subjects=total_subjects,
+                           total_classes=total_classes,
                            total_teachers=total_teachers,
                            report_data=report_data,
                            in_charge_data=in_charge_data,
@@ -861,7 +864,7 @@ def reports():
     # Teachers can only see reports for their assigned classes
     if current_user.role == 'teacher':
         assigned_ids = [c.id for c in current_user.assigned_classes]
-        student_query = student_query.filter(Student.class_id.in_(assigned_ids))
+        student_query = student_query.filter_by(class_id=assigned_ids)
     
     students = student_query.all()
     
@@ -871,10 +874,10 @@ def reports():
     if teacher_id: attendance_query = attendance_query.filter_by(teacher_id=teacher_id)
     if start_date: 
         s_date = datetime.strptime(start_date, '%Y-%m-%d').date()
-        attendance_query = attendance_query.filter(Attendance.date >= s_date)
+        attendance_query = attendance_query.where('date', '>=', s_date)
     if end_date:
         e_date = datetime.strptime(end_date, '%Y-%m-%d').date()
-        attendance_query = attendance_query.filter(Attendance.date <= e_date)
+        attendance_query = attendance_query.where('date', '<=', e_date)
     
     if current_user.role == 'teacher':
         # Limit to assigned classes' students

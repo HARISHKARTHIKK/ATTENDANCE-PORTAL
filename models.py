@@ -41,7 +41,12 @@ class FirestoreQuery:
         return self
 
     def filter(self, *args):
-        # Dummy to prevent crashes
+        # Dummy to return self to prevent crashes when SQLAlchemy style .filter() is accidentally called
+        return self
+
+    def where(self, field, op, value):
+        if value is not None:
+            self.filters.append((field, op, value))
         return self
 
     def order_by(self, *args):
