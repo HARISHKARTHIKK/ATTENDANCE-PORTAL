@@ -5,27 +5,26 @@ from firebase_admin import credentials, firestore
 from dotenv import load_dotenv
 
 # 1. Initialize Firebase Admin SDK AT THE VERY TOP
-# This must happen before any models or Firestore clients are initialized
 load_dotenv()
-firebase_key = os.getenv('FIREBASE_KEY')
+firebase_key_raw = os.getenv('FIREBASE_KEY')
 
 if not firebase_admin._apps:
-    if firebase_key:
-        try:
+    try:
+        if firebase_key_raw:
             # Parse the JSON string from environment variable
-            cred_dict = json.loads(firebase_key)
+            cred_dict = json.loads(firebase_key_raw)
+            project_id = cred_dict.get('project_id')
             cred = credentials.Certificate(cred_dict)
-            firebase_admin.initialize_app(cred)
-            print("Firebase initialized successfully from FIREBASE_KEY")
-        except Exception as e:
-            print(f"Error initializing Firebase from FIREBASE_KEY: {e}")
-    else:
-        # If no FIREBASE_KEY, we try default credentials (helpful for local if GOOGLE_APPLICATION_CREDENTIALS is set)
-        try:
+            firebase_admin.initialize_app(cred, {
+                'projectId': project_id
+            })
+            print(f"Firebase initialized successfully for project: {project_id}")
+        else:
+            # Fallback for local development
             firebase_admin.initialize_app()
             print("Firebase initialized with default credentials")
-        except Exception as e:
-            print(f"Firebase not initialized: FIREBASE_KEY missing and no default credentials found.")
+    except Exception as e:
+        print(f"CRITICAL: Firebase initialization failed: {e}")
 
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
@@ -74,20 +73,27 @@ def load_user(user_id):
     return User.query.get(user_id)
 
 
+def create_default_admin():
+    try:
+        if not User.query.filter_by(role='admin').first():
+            hashed_pw = generate_password_hash('admin123', method='pbkdf2:sha256')
+            admin = User(
+                name='Super Admin',
+                email='admin@gmail.com',
+                username='admin@gmail.com',
+                password=hashed_pw,
+                role='admin'
+            )
+            db.session.add(admin)
+            db.session.commit()
+            print("Default admin created.")
+    except Exception as e:
+        print(f"Error creating default admin: {e}")
+
 # Create database and default admin (HOD)
 with app.app_context():
     db.create_all()
-    if not User.query.filter_by(role='admin').first():
-        hashed_pw = generate_password_hash('admin123', method='pbkdf2:sha256')
-        admin = User(
-            name='Super Admin',
-            email='admin@gmail.com',
-            username='admin@gmail.com',
-            password=hashed_pw,
-            role='admin'
-        )
-        db.session.add(admin)
-        db.session.commit()
+    create_default_admin()
 
 # --- Routes ---
 @app.route('/health')

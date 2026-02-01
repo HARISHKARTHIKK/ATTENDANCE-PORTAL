@@ -20,12 +20,15 @@ def get_db():
 class FirestoreQuery:
     def __init__(self, model_class):
         self.model_class = model_class
-        # Handle the case where model_class might be a string (if we ever do that)
         self.collection_name = getattr(model_class, '__collection__', None)
-        self.collection_ref = get_db().collection(self.collection_name) if self.collection_name else None
         self.filters = []
         self._order_by = None
         self._limit = None
+
+    def _get_collection(self):
+        if not self.collection_name:
+            return None
+        return get_db().collection(self.collection_name)
 
     def filter_by(self, **kwargs):
         for k, v in kwargs.items():
@@ -50,8 +53,9 @@ class FirestoreQuery:
         return self
 
     def all(self):
-        if not self.collection_ref: return []
-        query = self.collection_ref
+        collection_ref = self._get_collection()
+        if not collection_ref: return []
+        query = collection_ref
         for f in self.filters:
             query = query.where(f[0], f[1], f[2])
         
@@ -89,9 +93,10 @@ class FirestoreQuery:
         return len(self.all())
 
     def get(self, doc_id):
-        if not doc_id or not self.collection_ref: return None
+        collection_ref = self._get_collection()
+        if not doc_id or not collection_ref: return None
         try:
-            doc = self.collection_ref.document(str(doc_id)).get()
+            doc = collection_ref.document(str(doc_id)).get()
             if doc.exists:
                 data = doc.to_dict()
                 data['id'] = doc.id
