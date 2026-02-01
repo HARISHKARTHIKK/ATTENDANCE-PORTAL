@@ -26,7 +26,7 @@ if not firebase_admin._apps:
     except Exception as e:
         print(f"CRITICAL: Firebase initialization failed: {e}")
 
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, session
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, session, abort
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 import pandas as pd
 from io import BytesIO
@@ -402,6 +402,7 @@ def assign_classes(teacher_id):
         if cls:
             teacher.assigned_classes.append(cls)
     
+    db.session.add(teacher)
     db.session.commit()
     return jsonify({'status': 'success', 'message': 'Classes assigned successfully!'})
 
@@ -437,6 +438,7 @@ def api_profile():
         user.phone = request.form.get('phone')
         if request.form.get('password'):
             user.password = generate_password_hash(request.form.get('password'), method='pbkdf2:sha256')
+        db.session.add(user)
         db.session.commit()
         return jsonify({'status': 'success', 'message': 'Profile updated!'})
     
@@ -885,7 +887,7 @@ def reports():
         attendance_query = attendance_query.filter_by(class_id=assigned_ids) # Or handle in Python if needed
 
 
-    recent_attendance = attendance_query.order_by(Attendance.date.desc()).limit(200).all()
+    recent_attendance = attendance_query.order_by('-date').limit(200).all()
     
     # Metadata for filters
     all_subjects = Subject.query.all()
@@ -976,6 +978,10 @@ def student_dashboard():
         return redirect(url_for('dashboard'))
     
     student = Student.query.get(current_user.student_id)
+    if not student:
+        flash('Student record not found.', 'danger')
+        return redirect(url_for('dashboard'))
+        
     subjects = Subject.query.all()
     
     subject_stats = []

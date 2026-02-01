@@ -110,6 +110,13 @@ class FirestoreQuery:
             print(f"Firestore get() error: {e}")
         return None
 
+    def get_or_404(self, doc_id):
+        from flask import abort
+        res = self.get(doc_id)
+        if not res:
+            abort(404)
+        return res
+
     def join(self, *args): return self
 
 class FirestoreSession:
