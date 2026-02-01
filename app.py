@@ -775,7 +775,11 @@ def attendance():
     if current_user.role == 'admin':
         all_classes = Classroom.query.all()
     else:
-        all_classes = Classroom.query.where('id', 'in', current_user.assigned_classes).all() if current_user.assigned_classes else []
+        # Guard against empty current_user.assigned_classes list for Firestore 'in' query
+        if current_user.assigned_classes:
+            all_classes = Classroom.query.where('id', 'in', current_user.assigned_classes).all()
+        else:
+            all_classes = []
 
     if request.method == 'POST':
         subject_id = request.form.get('subject_id')
@@ -786,7 +790,8 @@ def attendance():
             return redirect(url_for('attendance'))
             
         date_str = request.form.get('date')
-        date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
+        # Consistently use datetime objects for Firestore Timestamp compatibility
+        date_obj = datetime.strptime(date_str, '%Y-%m-%d')
         
         # Fetch students for the SELECTED CLASS only
         students = Student.query.filter_by(class_id=class_id).all()
@@ -883,7 +888,7 @@ def reports():
         if assigned_ids:
             student_query = student_query.where('class_id', 'in', assigned_ids)
         else:
-            student_query = student_query.where('class_id', '==', 'NONE')
+            student_query = student_query.where('class_id', '==', '__none__')
     
     students = student_query.all()
     
@@ -891,20 +896,24 @@ def reports():
     attendance_query = Attendance.query
     if subject_id: attendance_query = attendance_query.filter_by(subject_id=subject_id)
     if teacher_id: attendance_query = attendance_query.filter_by(teacher_id=teacher_id)
+    
+    # Use datetime objects (midnight) for consistent filtering with Firestore Timestamps
     if start_date: 
-        s_date = datetime.strptime(start_date, '%Y-%m-%d').date()
-        attendance_query = attendance_query.where('date', '>=', s_date)
+        s_dt = datetime.strptime(start_date, '%Y-%m-%d')
+        attendance_query = attendance_query.where('date', '>=', s_dt)
     if end_date:
-        e_date = datetime.strptime(end_date, '%Y-%m-%d').date()
-        attendance_query = attendance_query.where('date', '<=', e_date)
+        e_dt = datetime.strptime(end_date, '%Y-%m-%d')
+        # To include the entire end date, comparison is usually <= midnight of that day 
+        # given that Attendance records are also saved as midnight.
+        attendance_query = attendance_query.where('date', '<=', e_dt)
     
     if current_user.role == 'teacher':
-        # Limit to assigned classes' students
+        # Limit to assigned classes' students with an empty list guard
         assigned_ids = current_user.assigned_classes
         if assigned_ids:
             attendance_query = attendance_query.where('class_id', 'in', assigned_ids)
         else:
-            attendance_query = attendance_query.where('class_id', '==', 'NONE')
+            attendance_query = attendance_query.where('class_id', '==', '__none__')
 
 
     recent_attendance = attendance_query.order_by('-date').limit(200).all()
@@ -912,7 +921,16 @@ def reports():
     # Metadata for filters - Optimized fetching
     all_subjects = Subject.query.all()
     all_classes_objs = Classroom.query.all()
-    all_classes = all_classes_objs if current_user.role == 'admin' else (Classroom.query.where('id', 'in', current_user.assigned_classes).all() if current_user.assigned_classes else [])
+    
+    if current_user.role == 'admin':
+        all_classes = all_classes_objs
+    else:
+        # Guard for 'in' query in metadata
+        if current_user.assigned_classes:
+            all_classes = Classroom.query.where('id', 'in', current_user.assigned_classes).all()
+        else:
+            all_classes = []
+            
     all_teachers = User.query.filter_by(role='teacher').all()
     departments = list(set([c.dept for c in all_classes_objs]))
 
