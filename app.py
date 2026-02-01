@@ -111,10 +111,12 @@ def dashboard():
     # Use where() for 'in' queries as per requirement
     total_teachers = User.query.where('role', 'in', ['teacher', 'in_charge', 'hod']).count()
     
-    # Simple stats for dashboard
+    # Limit students to top 10 for Quick Summary on initial load to save N queries
+    # Users can see full data on the Reports page.
     students = Student.query.all()
+    top_students = students[:10]
     report_data = []
-    for s in students:
+    for s in top_students:
         total, present, perc = s.get_attendance_stats()
         report_data.append({
             'name': s.name,
@@ -124,51 +126,42 @@ def dashboard():
         })
     
     today = datetime.utcnow().date()
+    today_dt = datetime.combine(today, datetime.min.time())
     in_charge_data = None
     hod_summary = []
 
-    if current_user.role == 'in_charge':
-        # Fetch the first assigned class for in-charge summary
-        cls = None
-        if current_user.assigned_classes:
-            cls = Classroom.query.where('id', 'in', current_user.assigned_classes).first()
-            
-        if cls:
-            present_today = Attendance.query.filter_by(
-                class_id=cls.id,
-                date=datetime.combine(today, datetime.min.time()),
-                status='Present'
-            ).count()
-            absent_today = Attendance.query.filter_by(
-                class_id=cls.id,
-                date=datetime.combine(today, datetime.min.time()),
-                status='Absent'
-            ).count()
+    # Optimization: Pre-fetch today's attendance records to avoid O(C) queries
+    attendance_today = Attendance.query.filter_by(date=today_dt).all()
+    stats_map = {}
+    for rec in attendance_today:
+        cid = getattr(rec, 'class_id', None)
+        if not cid: continue
+        if cid not in stats_map:
+            stats_map[cid] = {'present': 0, 'absent': 0}
+        if rec.status == 'Present':
+            stats_map[cid]['present'] += 1
+        elif rec.status == 'Absent':
+            stats_map[cid]['absent'] += 1
 
-            in_charge_data = {'present': present_today, 'absent': absent_today, 'class_name': cls.name}
+    if current_user.role == 'in_charge':
+        cls = Classroom.query.where('id', 'in', current_user.assigned_classes).first() if current_user.assigned_classes else None
+        if cls:
+            stats = stats_map.get(cls.id, {'present': 0, 'absent': 0})
+            in_charge_data = {'present': stats['present'], 'absent': stats['absent'], 'class_name': cls.name}
     
-    # HOD/Admin see summary for all classes, Teachers see summary for their assigned class
     if current_user.role in ['hod', 'admin', 'teacher']:
         if current_user.role == 'teacher':
-            # Teachers only see their assigned classes
             classes_to_show = Classroom.query.where('id', 'in', current_user.assigned_classes).all() if current_user.assigned_classes else []
         else:
-            # HOD/Admin see everything
             classes_to_show = Classroom.query.all()
 
         for cls in classes_to_show:
-            p = Attendance.query.filter_by(
-                class_id=cls.id, 
-                date=datetime.combine(today, datetime.min.time()), 
-                status='Present'
-            ).count()
-            a = Attendance.query.filter_by(
-                class_id=cls.id, 
-                date=datetime.combine(today, datetime.min.time()), 
-                status='Absent'
-            ).count()
-
-            hod_summary.append({'class_name': cls.name, 'present': p, 'absent': a})
+            stats = stats_map.get(cls.id, {'present': 0, 'absent': 0})
+            hod_summary.append({
+                'class_name': cls.name, 
+                'present': stats['present'], 
+                'absent': stats['absent']
+            })
 
     return render_template('dashboard.html', 
                            total_students=total_students, 
@@ -575,8 +568,18 @@ def bulk_upload_students():
                     flash(f'Missing required column: {col}', 'danger')
                     return redirect(url_for('students'))
             
+            # Pre-fetch for performance (O(1) lookups instead of O(N) queries)
+            all_classes = {c.name: c for c in Classroom.query.all()}
+            existing_roll_nos = {s.roll_no for s in Student.query.all()}
+            existing_users = {u.username: u for u in User.query.all()}
+            
+            db_conn = get_db()
+            batch = db_conn.batch()
+            batch_ops = 0
+            
             success_count = 0
             skipped_count = 0
+            
             for _, row in df.iterrows():
                 name = str(row['Name']).strip()
                 roll_no = str(row['Roll No']).strip()
@@ -585,59 +588,72 @@ def bulk_upload_students():
                 phone = str(row.get('Phone', '')) if 'Phone' in df.columns else None
                 class_name = str(row.get('Class_Name', '')).strip()
                 
-                # Basic validation
-                if roll_no == 'nan' or name == 'nan':
-                    skipped_count += 1
-                    print(f"Skipping row due to missing Name or Roll No: {row.to_dict()}")
-                    continue
-
-                class_id = None
-                semester = 1
-                cls = Classroom.query.filter_by(name=class_name).first()
-                if cls:
-                    class_id = cls.id
-                    semester = cls.current_semester
-                else:
-                    # If class doesn't exist, we might want to skip or create it
-                    # For now, let's skip to avoid orphan students
-                    print(f"Skipping {name}: Class '{class_name}' not found")
+                if roll_no == 'nan' or name == 'nan' or roll_no in existing_roll_nos:
                     skipped_count += 1
                     continue
 
-                # Check if Student already exists
-                if Student.query.filter_by(roll_no=roll_no).first():
-                    print(f"Skipping {name}: Student record with Roll No {roll_no} already exists")
+                cls = all_classes.get(class_name)
+                if not cls:
                     skipped_count += 1
-                    continue 
+                    continue
 
                 try:
-                    # Create new student record
-                    new_student = Student(name=name, roll_no=roll_no, dept=dept, phone=phone, semester=semester, class_id=class_id)
-                    new_student.save()
-
-
-
+                    # 1. Pre-generate Student ID for linking
+                    student_ref = db_conn.collection(Student.__collection__).document()
+                    new_student = Student(
+                        id=student_ref.id, 
+                        name=name, 
+                        roll_no=roll_no, 
+                        dept=dept, 
+                        phone=phone, 
+                        semester=cls.current_semester, 
+                        class_id=cls.id
+                    )
                     
-                    # Check if User already exists (orphaned account)
-                    existing_user = User.query.filter_by(username=roll_no).first()
-                    if existing_user:
-                        # Link the existing user to the new student
-                        existing_user.student_id = new_student.id
-                        existing_user.name = name
-                        if phone: existing_user.phone = phone
-                        print(f"Linked existing user {roll_no} to new student {name}")
+                    # Add student to batch
+                    batch.set(student_ref, new_student.to_dict())
+                    batch_ops += 1
+
+                    # 2. Check User association
+                    user = existing_users.get(roll_no)
+                    if user:
+                        user_ref = db_conn.collection(User.__collection__).document(str(user.id))
+                        # Update existing user
+                        update_data = {'student_id': new_student.id, 'name': name}
+                        if phone: update_data['phone'] = phone
+                        batch.update(user_ref, update_data)
                     else:
                         # Create new user login
+                        user_ref = db_conn.collection(User.__collection__).document()
                         default_pw = generate_password_hash('student123', method='pbkdf2:sha256')
-                        new_user = User(name=name, email=email if email else None, username=roll_no, 
-                                        password=default_pw, role='student', student_id=new_student.id, phone=phone)
-                        new_user.save()
-                        print(f"Created new user for student {name}")
-                        
+                        new_user = User(
+                            id=user_ref.id,
+                            name=name, 
+                            email=email if email else None, 
+                            username=roll_no, 
+                            password=default_pw, 
+                            role='student', 
+                            student_id=new_student.id, 
+                            phone=phone
+                        )
+                        batch.set(user_ref, new_user.to_dict())
+                    
+                    batch_ops += 1
                     success_count += 1
+                    existing_roll_nos.add(roll_no) # Prevent internal duplicates in same file
+
+                    # Firestore batch limit is 500
+                    if batch_ops >= 450:
+                        batch.commit()
+                        batch = db_conn.batch()
+                        batch_ops = 0
+
                 except Exception as e:
-                    print(f"Error inserting student {name} (Roll No: {roll_no}): {str(e)}")
+                    print(f"Error processing {name}: {e}")
                     skipped_count += 1
+            
+            if batch_ops > 0:
+                batch.commit()
             
             if success_count > 0:
                 flash(f'Successfully imported {success_count} students!', 'success')
@@ -775,6 +791,11 @@ def attendance():
         # Fetch students for the SELECTED CLASS only
         students = Student.query.filter_by(class_id=class_id).all()
         
+        # Use Firestore Batch Write for performance
+        db_conn = get_db()
+        batch = db_conn.batch()
+        count = 0
+        
         for student in students:
             status = request.form.get(f'status_{student.id}')
             if status: 
@@ -786,9 +807,15 @@ def attendance():
                     date=date_obj,
                     status=status
                 )
-                new_record.save()
+                # Prepare batch write
+                doc_ref = db_conn.collection(Attendance.__collection__).document()
+                batch.set(doc_ref, new_record.to_dict())
+                count += 1
 
-        flash('Attendance marked successfully!', 'success')
+        if count > 0:
+            batch.commit()
+
+        flash(f'Attendance marked for {count} students!', 'success')
         return redirect(url_for('dashboard'))
 
     return render_template('attendance.html', 
@@ -882,16 +909,36 @@ def reports():
 
     recent_attendance = attendance_query.order_by('-date').limit(200).all()
     
-    # Metadata for filters
+    # Metadata for filters - Optimized fetching
     all_subjects = Subject.query.all()
-    all_classes = Classroom.query.all() if current_user.role == 'admin' else (Classroom.query.where('id', 'in', current_user.assigned_classes).all() if current_user.assigned_classes else [])
+    all_classes_objs = Classroom.query.all()
+    all_classes = all_classes_objs if current_user.role == 'admin' else (Classroom.query.where('id', 'in', current_user.assigned_classes).all() if current_user.assigned_classes else [])
     all_teachers = User.query.filter_by(role='teacher').all()
-    departments = list(set([c.dept for c in Classroom.query.all()]))
+    departments = list(set([c.dept for c in all_classes_objs]))
 
+    # Optimization: Perform total aggregation in a single query instead of O(N) queries
+    # Fetch all relevant attendance records for the students being displayed
+    rep_attendance_query = Attendance.query
+    if subject_id: rep_attendance_query = rep_attendance_query.filter_by(subject_id=subject_id)
+    if class_id: rep_attendance_query = rep_attendance_query.filter_by(class_id=class_id)
+    
+    relevant_attendance = rep_attendance_query.all()
+    attendance_map = {}
+    for rec in relevant_attendance:
+        sid = getattr(rec, 'student_id', None)
+        if not sid: continue
+        if sid not in attendance_map:
+            attendance_map[sid] = {'total': 0, 'present': 0}
+        attendance_map[sid]['total'] += 1
+        if getattr(rec, 'status', '') == 'Present':
+            attendance_map[sid]['present'] += 1
 
     report_data = []
     for s in students:
-        t, p, perc = s.get_attendance_stats(subject_id=subject_id)
+        stats = attendance_map.get(s.id, {'total': 0, 'present': 0})
+        t = stats['total']
+        p = stats['present']
+        perc = round((p / t * 100), 2) if t > 0 else 0.0
         report_data.append({'student': s, 'total': t, 'present': p, 'percentage': perc})
 
     return render_template('reports.html', 

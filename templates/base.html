@@ -356,6 +356,19 @@
                     }
                 });
             });
+            // Global form submission handler for loading states
+            document.addEventListener('submit', function (e) {
+                const form = e.target;
+                const submitBtn = form.querySelector('button[type="submit"]');
+                if (submitBtn && !submitBtn.hasAttribute('data-no-loader')) {
+                    // Prevent double submission
+                    if (submitBtn.disabled) return;
+
+                    submitBtn.disabled = true;
+                    submitBtn.classList.add('opacity-75');
+                    submitBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Saving...`;
+                }
+            });
         });
     </script>
     {% block scripts %}{% endblock %}

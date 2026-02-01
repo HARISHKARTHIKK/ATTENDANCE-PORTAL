@@ -142,9 +142,9 @@ class FirestoreModel(metaclass=ModelMeta):
         for k, v in kwargs.items():
             setattr(self, k, v)
 
-    def save(self):
+    def to_dict(self):
         data = self.__dict__.copy()
-        doc_id = data.pop('id', None)
+        data.pop('id', None)
         clean_data = {}
         for k, v in data.items():
             if k.startswith('_') or callable(v): continue
@@ -152,6 +152,11 @@ class FirestoreModel(metaclass=ModelMeta):
                 if isinstance(v, date) and not isinstance(v, datetime):
                     v = datetime.combine(v, datetime.min.time())
             clean_data[k] = v
+        return clean_data
+
+    def save(self):
+        clean_data = self.to_dict()
+        doc_id = getattr(self, 'id', None)
 
         if doc_id:
             get_db().collection(self.__collection__).document(str(doc_id)).set(clean_data)
@@ -174,6 +179,8 @@ class DBWrapper:
         self.Model = FirestoreModel
     def init_app(self, app): pass
     def create_all(self): pass
+    def batch(self):
+        return get_db().batch()
 
 db = DBWrapper()
 
