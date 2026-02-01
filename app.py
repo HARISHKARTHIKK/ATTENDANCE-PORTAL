@@ -620,10 +620,12 @@ def bulk_upload_students():
                 class_name = str(row.get('Class_Name', '')).strip()
                 
                 if not roll_no or roll_no.lower() == 'nan' or not name or name.lower() == 'nan':
+                    print(f"DEBUG: Skipping {name}/{roll_no} - missing name or roll_no")
                     skipped_count += 1
                     continue
                 
                 if roll_no in existing_roll_nos:
+                    print(f"DEBUG: Skipping {name}/{roll_no} - already exists in database")
                     skipped_count += 1
                     continue
 
@@ -633,6 +635,7 @@ def bulk_upload_students():
                     cls = next((c for n, c in all_classes.items() if n.lower() == class_name.lower()), None)
                 
                 if not cls:
+                    print(f"DEBUG: Creating missing class {class_name} for student {name}")
                     # Auto-create classroom if missing (Rectify)
                     try:
                         new_cls_ref = db_conn.collection(Classroom.__collection__).document()
@@ -710,7 +713,7 @@ def bulk_upload_students():
                         batch_ops = 0
 
                 except Exception as e:
-                    print(f"Error processing {name}: {e}")
+                    print(f"Error processing {name}/{roll_no}: {e}")
                     skipped_count += 1
             
             if batch_ops > 0:
@@ -719,8 +722,10 @@ def bulk_upload_students():
             if success_count > 0:
                 flash(f'Successfully imported {success_count} students!', 'success')
             if skipped_count > 0:
-                flash(f'Skipped {skipped_count} students (duplicates or invalid data).', 'warning')
+                flash(f'Skipped {skipped_count} students. Check logs for details.', 'warning')
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             flash(f'Error processing file: {str(e)}', 'danger')
     else:
         flash('Invalid file format. Please upload CSV or XLSX.', 'danger')
