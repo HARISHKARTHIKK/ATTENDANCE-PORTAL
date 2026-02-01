@@ -26,7 +26,7 @@ if not firebase_admin._apps:
     except Exception as e:
         print(f"CRITICAL: Firebase initialization failed: {e}")
 
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, session
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 import pandas as pd
 from io import BytesIO
@@ -58,7 +58,7 @@ def teacher_allowed(f):
 import secrets
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', secrets.token_hex(16))
+app.config['SECRET_KEY'] = os.environ.get("SECRET_KEY", "dev")
 # supabase or local sqlite settings removed for firebase
 
 
@@ -180,15 +180,36 @@ def login():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        user = User.query.filter_by(username=username).first()
         
-        if user and check_password_hash(user.password, password):
-            login_user(user)
-            if user.role in ['admin', 'teacher']:
-                return redirect(url_for('dashboard'))
-            return redirect(url_for('student_dashboard'))
-        else:
-            flash('Login Unsuccessful. Please check username and password', 'danger')
+        # 1. Check for missing fields
+        if not username or not password:
+            flash('Please provide both username and password', 'warning')
+            return render_template('login.html')
+
+        try:
+            # 2. Fetch user safely
+            user = User.query.filter_by(username=username).first()
+            
+            # 3. Check existence and password safely
+            if user and check_password_hash(getattr(user, 'password', ''), password):
+                login_user(user)
+                
+                # 4. Explicit session handling as requested
+                session['user_id'] = user.id
+                session.permanent = True
+                
+                flash(f'Welcome back, {user.name}!', 'success')
+                
+                if user.role in ['admin', 'teacher', 'hod', 'in_charge']:
+                    return redirect(url_for('dashboard'))
+                return redirect(url_for('student_dashboard'))
+            else:
+                flash('Invalid username or password', 'danger')
+        except Exception as e:
+            print(f"Login error: {e}")
+            flash('An internal error occurred. Please try again later.', 'danger')
+            return render_template('login.html')
+            
     return render_template('login.html')
 
 @app.route('/logout')
