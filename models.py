@@ -182,42 +182,10 @@ class User(UserMixin, FirestoreModel):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         if not hasattr(self, 'role'): self.role = 'teacher'
-        if not hasattr(self, 'assigned_classes_ids'): self.assigned_classes_ids = []
+        if not hasattr(self, 'assigned_classes'): self.assigned_classes = []
 
     def get_id(self): return str(self.id)
 
-    @property
-    def assigned_classes(self):
-        if not hasattr(self, 'assigned_classes_ids') or not self.assigned_classes_ids:
-            return FirestoreQuery(Classroom).filter_by(id='NONE')
-        return FirestoreQuery(Classroom).filter_by(id=self.assigned_classes_ids)
-
-    @assigned_classes.setter
-    def assigned_classes(self, value):
-        if isinstance(value, list) and len(value) == 0:
-            self.assigned_classes_ids = []
-            # Return a special list that intercepts .append(cls)
-            # Python doesn't allow returning from setter, but we can set an attribute
-            self._mock_list = MockRelationList(self, 'assigned_classes_ids')
-
-    def __getattribute__(self, name):
-        if name == 'assigned_classes' and hasattr(self, '_mock_list'):
-            # If we are in the middle of an assignment (after = [])
-            # we want to return the mock list so .append() works
-            return self._mock_list
-        return super().__getattribute__(name)
-
-class MockRelationList(list):
-    def __init__(self, owner, attr_name):
-        self.owner = owner
-        self.attr_name = attr_name
-        super().__init__()
-    def append(self, item):
-        if not hasattr(self.owner, self.attr_name) or getattr(self.owner, self.attr_name) is None:
-            setattr(self.owner, self.attr_name, [])
-        if hasattr(item, 'id'):
-            getattr(self.owner, self.attr_name).append(str(item.id))
-        super().append(item)
 
 
 

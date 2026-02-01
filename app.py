@@ -128,7 +128,11 @@ def dashboard():
     hod_summary = []
 
     if current_user.role == 'in_charge':
-        cls = Classroom.query.filter_by(name=current_user.assigned_class).first()
+        # Fetch the first assigned class for in-charge summary
+        cls = None
+        if current_user.assigned_classes:
+            cls = Classroom.query.where('id', 'in', current_user.assigned_classes).first()
+            
         if cls:
             present_today = Attendance.query.filter_by(
                 class_id=cls.id,
@@ -146,8 +150,8 @@ def dashboard():
     # HOD/Admin see summary for all classes, Teachers see summary for their assigned class
     if current_user.role in ['hod', 'admin', 'teacher']:
         if current_user.role == 'teacher':
-            # Teachers only see their assigned class
-            classes_to_show = Classroom.query.filter_by(name=current_user.assigned_class).all() if current_user.assigned_class else []
+            # Teachers only see their assigned classes
+            classes_to_show = Classroom.query.where('id', 'in', current_user.assigned_classes).all() if current_user.assigned_classes else []
         else:
             # HOD/Admin see everything
             classes_to_show = Classroom.query.all()
@@ -241,7 +245,9 @@ def teachers():
         return redirect(url_for('teachers'))
     
     all_teachers = User.query.filter_by(role='teacher').all()
-    return render_template('teachers.html', teachers=all_teachers)
+    all_classes = Classroom.query.all()
+    class_map = {str(c.id): c.name for c in all_classes}
+    return render_template('teachers.html', teachers=all_teachers, class_map=class_map)
 
 @app.route('/classes', methods=['GET', 'POST'])
 @login_required
@@ -390,12 +396,8 @@ def assign_classes(teacher_id):
     teacher = User.query.get_or_404(teacher_id)
     class_ids = request.form.getlist('class_ids')
     
-    # Update assignments
-    teacher.assigned_classes = []
-    for cid in class_ids:
-        cls = Classroom.query.get(cid)
-        if cls:
-            teacher.assigned_classes.append(cls)
+    # Update assignments with IDs
+    teacher.assigned_classes = class_ids
     
     teacher.save()
     return jsonify({'status': 'success', 'message': 'Classes assigned successfully!'})
@@ -411,7 +413,7 @@ def get_teacher_data(id):
         'name': teacher.name,
         'email': teacher.email,
         'phone': teacher.phone,
-        'assigned_classes': [c.id for c in teacher.assigned_classes]
+        'assigned_classes': teacher.assigned_classes
     })
 
 @app.route('/profile')
@@ -757,7 +759,7 @@ def attendance():
     if current_user.role == 'admin':
         all_classes = Classroom.query.all()
     else:
-        all_classes = current_user.assigned_classes.all()
+        all_classes = Classroom.query.where('id', 'in', current_user.assigned_classes).all() if current_user.assigned_classes else []
 
     if request.method == 'POST':
         subject_id = request.form.get('subject_id')
@@ -850,8 +852,11 @@ def reports():
     
     # Teachers can only see reports for their assigned classes
     if current_user.role == 'teacher':
-        assigned_ids = [c.id for c in current_user.assigned_classes]
-        student_query = student_query.where('class_id', 'in', assigned_ids)
+        assigned_ids = current_user.assigned_classes
+        if assigned_ids:
+            student_query = student_query.where('class_id', 'in', assigned_ids)
+        else:
+            student_query = student_query.where('class_id', '==', 'NONE')
     
     students = student_query.all()
     
@@ -868,7 +873,7 @@ def reports():
     
     if current_user.role == 'teacher':
         # Limit to assigned classes' students
-        assigned_ids = [c.id for c in current_user.assigned_classes]
+        assigned_ids = current_user.assigned_classes
         if assigned_ids:
             attendance_query = attendance_query.where('class_id', 'in', assigned_ids)
         else:
@@ -879,7 +884,7 @@ def reports():
     
     # Metadata for filters
     all_subjects = Subject.query.all()
-    all_classes = Classroom.query.all() if current_user.role == 'admin' else current_user.assigned_classes.all()
+    all_classes = Classroom.query.all() if current_user.role == 'admin' else (Classroom.query.where('id', 'in', current_user.assigned_classes).all() if current_user.assigned_classes else [])
     all_teachers = User.query.filter_by(role='teacher').all()
     departments = list(set([c.dept for c in Classroom.query.all()]))
 

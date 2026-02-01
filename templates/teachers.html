@@ -38,8 +38,9 @@
                     <td>{{ teacher.email }}</td>
                     <td>{{ teacher.phone or 'N/A' }}</td>
                     <td>
-                        {% for cls in teacher.assigned_classes %}
-                        <span class="badge bg-primary-subtle text-primary">{{ cls.name }}</span>
+                        {% for class_id in teacher.assigned_classes %}
+                        <span class="badge bg-primary-subtle text-primary">{{ class_map.get(class_id|string, 'Unknown')
+                            }}</span>
                         {% else %}
                         <span class="text-muted small">None</span>
                         {% endfor %}
