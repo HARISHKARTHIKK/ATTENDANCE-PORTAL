@@ -62,7 +62,10 @@ class FirestoreQuery:
         if not collection_ref: return []
         query = collection_ref
         for f in self.filters:
-            query = query.where(f[0], f[1], f[2])
+            val = f[2]
+            if isinstance(val, (date, datetime)):
+                val = val.strftime("%Y-%m-%d")
+            query = query.where(f[0], f[1], val)
         
         if self._order_by:
             for field in self._order_by:
@@ -149,8 +152,8 @@ class FirestoreModel(metaclass=ModelMeta):
         for k, v in data.items():
             if k.startswith('_') or callable(v): continue
             if isinstance(v, (date, datetime)):
-                if isinstance(v, date) and not isinstance(v, datetime):
-                    v = datetime.combine(v, datetime.min.time())
+                # Convert date/datetime to string as requested
+                v = v.strftime("%Y-%m-%d")
             clean_data[k] = v
         return clean_data
 
@@ -222,5 +225,6 @@ class Attendance(FirestoreModel):
     __collection__ = 'attendance_records'
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        if hasattr(self, 'date') and isinstance(self.date, date) and not isinstance(self.date, datetime):
-            self.date = datetime.combine(self.date, datetime.min.time())
+        # Ensure date is a string YYYY-MM-DD
+        if hasattr(self, 'date') and isinstance(self.date, (date, datetime)):
+            self.date = self.date.strftime("%Y-%m-%d")

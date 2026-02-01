@@ -818,26 +818,32 @@ def attendance():
             return redirect(url_for('attendance'))
             
         date_str = request.form.get('date')
-        # Consistently use datetime objects for Firestore Timestamp compatibility
-        date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-        
+        if not date_str:
+            flash('Date is required', 'danger')
+            return redirect(url_for('attendance'))
+            
         # Fetch students for the SELECTED CLASS only
         students = Student.query.filter_by(class_id=class_id).all()
+        student_ids = {str(s.id) for s in students}
         
         # Use Firestore Batch Write for performance
         db_conn = get_db()
         batch = db_conn.batch()
         count = 0
         
+        # Valid status options
+        VALID_STATUSES = ['Present', 'Absent']
+        
         for student in students:
             status = request.form.get(f'status_{student.id}')
-            if status: 
+            # Validate status and ensure student belongs to this class
+            if status in VALID_STATUSES: 
                 new_record = Attendance(
-                    student_id=student.id,
-                    subject_id=subject_id,
-                    class_id=class_id,
-                    teacher_id=current_user.id,
-                    date=date_obj,
+                    student_id=str(student.id),
+                    subject_id=str(subject_id),
+                    class_id=str(class_id),
+                    teacher_id=str(current_user.id),
+                    date=date_str, # Store as string YYYY-MM-DD
                     status=status
                 )
                 # Prepare batch write
