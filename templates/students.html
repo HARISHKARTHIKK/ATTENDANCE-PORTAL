@@ -76,7 +76,7 @@
                     <td class="ps-4"><span class="badge bg-light text-dark border fw-bold">{{ student.roll_no }}</span>
                     </td>
                     <td class="fw-semibold">{{ student.name }}</td>
-                    <td>{{ student.classroom.name if student.classroom else 'N/A' }}</td>
+                    <td>{{ class_map.get(student.class_id|string, 'N/A') }}</td>
                     <td class="small text-uppercase">{{ student.dept }}</td>
                     <td><span class="badge bg-primary-subtle text-primary">Sem {{ student.semester }}</span></td>
                     <td>{{ student.phone or 'N/A' }}</td>

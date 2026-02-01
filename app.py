@@ -31,7 +31,7 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 import pandas as pd
 from io import BytesIO
 from werkzeug.security import generate_password_hash, check_password_hash
-from models import db, User, Student, Subject, Attendance, Classroom, Department
+from models import db, User, Student, Subject, Attendance, Classroom, Department, get_db
 from datetime import datetime
 from functools import wraps
 import csv
@@ -490,7 +490,8 @@ def students():
     
     all_students = Student.query.all()
     all_classes = Classroom.query.all()
-    return render_template('students.html', students=all_students, classes=all_classes)
+    class_map = {str(c.id): c.name for c in all_classes}
+    return render_template('students.html', students=all_students, classes=all_classes, class_map=class_map)
 
 @app.route('/delete_student/<id>')
 
@@ -1009,13 +1010,23 @@ def reports():
         perc = round((p / t * 100), 2) if t > 0 else 0.0
         report_data.append({'student': s, 'total': t, 'present': p, 'percentage': perc})
 
+    # Create mappings for manual relationship resolution in templates
+    class_map = {str(c.id): c.name for c in all_classes_objs}
+    subject_map = {str(s.id): s.name for s in all_subjects}
+    teacher_map = {str(t.id): t.name for t in all_teachers}
+    student_map = {str(s.id): s.name for s in students}
+
     return render_template('reports.html', 
                          report=report_data, 
                          subjects=all_subjects, 
                          classes=all_classes,
                          teachers=all_teachers,
                          departments=departments,
-                         recent_attendance=recent_attendance)
+                         recent_attendance=recent_attendance,
+                         class_map=class_map,
+                         subject_map=subject_map,
+                         teacher_map=teacher_map,
+                         student_map=student_map)
 
 @app.route('/export_excel')
 @login_required
