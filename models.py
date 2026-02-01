@@ -164,6 +164,10 @@ class FirestoreModel(metaclass=ModelMeta):
             setattr(self, k, v)
         self.save()
 
+    def delete(self):
+        if self.id:
+            get_db().collection(self.__collection__).document(str(self.id)).delete()
+
 class DBWrapper:
     def __init__(self):
         self.session = FirestoreSession()

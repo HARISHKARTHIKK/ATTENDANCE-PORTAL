@@ -84,15 +84,13 @@ def create_default_admin():
                 password=hashed_pw,
                 role='admin'
             )
-            db.session.add(admin)
-            db.session.commit()
+            admin.save()
             print("Default admin created.")
     except Exception as e:
         print(f"Error creating default admin: {e}")
 
-# Create database and default admin (HOD)
+# Create default admin safely
 with app.app_context():
-    db.create_all()
     create_default_admin()
 
 # --- Routes ---
@@ -110,8 +108,8 @@ def dashboard():
     total_students = Student.query.count()
     total_subjects = Subject.query.count()
     total_classes = Classroom.query.count()
-    # Use filter_by for 'in' queries (passing a list triggers 'in')
-    total_teachers = User.query.filter_by(role=['teacher', 'in_charge', 'hod']).count()
+    # Use where() for 'in' queries as per requirement
+    total_teachers = User.query.where('role', 'in', ['teacher', 'in_charge', 'hod']).count()
     
     # Simple stats for dashboard
     students = Student.query.all()
@@ -231,14 +229,14 @@ def teachers():
         email = request.form.get('email')
         password = request.form.get('password')
         
-        if User.query.filter_by(email=email).first():
+        existing_user = User.query.filter_by(email=email).first()
+        if existing_user:
             flash('Email already exists!', 'danger')
         else:
             phone = request.form.get('phone')
             hashed_pw = generate_password_hash(password, method='pbkdf2:sha256')
             new_teacher = User(name=name, email=email, username=email, password=hashed_pw, role='teacher', phone=phone)
-            db.session.add(new_teacher)
-            db.session.commit()
+            new_teacher.save()
             flash(f'Teacher {name} added successfully!', 'success')
         return redirect(url_for('teachers'))
     
@@ -255,8 +253,7 @@ def classes():
         year = request.form.get('year')
         current_sem = request.form.get('current_semester', 1)
         new_class = Classroom(name=name, dept=dept, year=year, current_semester=current_sem)
-        db.session.add(new_class)
-        db.session.commit()
+        new_class.save()
         flash(f'Class {name} added!', 'success')
         return redirect(url_for('classes'))
     all_classes = Classroom.query.all()
@@ -268,9 +265,9 @@ def classes():
 @admin_required
 def delete_class(id):
     cls = Classroom.query.get_or_404(id)
-    db.session.delete(cls)
-    db.session.commit()
-    flash('Class deleted!', 'info')
+    if cls:
+        cls.delete()
+        flash('Class deleted!', 'info')
     return redirect(url_for('classes'))
 
 @app.route('/edit_class/<id>', methods=['POST'])
@@ -290,7 +287,6 @@ def edit_class(id):
             return jsonify({'status': 'success', 'message': 'Class updated!'})
         flash('Class updated!', 'success')
     except Exception as e:
-        db.session.rollback()
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'status': 'error', 'message': str(e)}), 500
         flash(f'Error updating class: {str(e)}', 'danger')
@@ -355,9 +351,8 @@ def get_subjects_by_semester(semester_id, dept):
 @admin_required
 def delete_teacher(id):
     teacher = User.query.get_or_404(id)
-    if teacher.role == 'teacher':
-        db.session.delete(teacher)
-        db.session.commit()
+    if teacher and teacher.role == 'teacher':
+        teacher.delete()
         flash('Teacher removed!', 'info')
     return redirect(url_for('teachers'))
 
@@ -402,8 +397,7 @@ def assign_classes(teacher_id):
         if cls:
             teacher.assigned_classes.append(cls)
     
-    db.session.add(teacher)
-    db.session.commit()
+    teacher.save()
     return jsonify({'status': 'success', 'message': 'Classes assigned successfully!'})
 
 @app.route('/api/teachers/<id>', methods=['GET'])
@@ -438,8 +432,7 @@ def api_profile():
         user.phone = request.form.get('phone')
         if request.form.get('password'):
             user.password = generate_password_hash(request.form.get('password'), method='pbkdf2:sha256')
-        db.session.add(user)
-        db.session.commit()
+        user.save()
         return jsonify({'status': 'success', 'message': 'Profile updated!'})
     
     return jsonify({
@@ -469,14 +462,12 @@ def students():
 
         # Create Student Record
         new_student = Student(name=name, roll_no=roll_no, dept=dept, phone=phone, semester=semester, class_id=class_id)
-        db.session.add(new_student)
+        new_student.save()
         
         # Create User Login for Student
         default_pw = generate_password_hash('student123', method='pbkdf2:sha256')
         new_user = User(username=roll_no, password=default_pw, role='student', student_id=new_student.id, phone=phone)
-        db.session.add(new_user)
-        
-        db.session.commit()
+        new_user.save()
 
         flash(f'Student {name} added! Login: {roll_no} / student123', 'success')
         return redirect(url_for('students'))
@@ -491,13 +482,13 @@ def students():
 @admin_required
 def delete_student(id):
     student = Student.query.get_or_404(id)
-    # Also delete the associated user account
-    user = User.query.filter_by(student_id=student.id).first()
-    if user:
-        db.session.delete(user)
-    db.session.delete(student)
-    db.session.commit()
-    flash('Student deleted!', 'info')
+    if student:
+        # Also delete the associated user account
+        user = User.query.filter_by(student_id=student.id).first()
+        if user:
+            user.delete()
+        student.delete()
+        flash('Student deleted!', 'info')
     return redirect(url_for('students'))
 
 @app.route('/edit_student/<id>', methods=['POST'])
@@ -620,7 +611,7 @@ def bulk_upload_students():
                 try:
                     # Create new student record
                     new_student = Student(name=name, roll_no=roll_no, dept=dept, phone=phone, semester=semester, class_id=class_id)
-                    db.session.add(new_student)
+                    new_student.save()
 
 
 
@@ -638,16 +629,14 @@ def bulk_upload_students():
                         default_pw = generate_password_hash('student123', method='pbkdf2:sha256')
                         new_user = User(name=name, email=email if email else None, username=roll_no, 
                                         password=default_pw, role='student', student_id=new_student.id, phone=phone)
-                        db.session.add(new_user)
+                        new_user.save()
                         print(f"Created new user for student {name}")
                         
                     success_count += 1
                 except Exception as e:
-                    db.session.rollback()
                     print(f"Error inserting student {name} (Roll No: {roll_no}): {str(e)}")
                     skipped_count += 1
             
-            db.session.commit()
             if success_count > 0:
                 flash(f'Successfully imported {success_count} students!', 'success')
             if skipped_count > 0:
@@ -690,8 +679,7 @@ def subjects():
         teacher_id = request.form.get('teacher_id')
         new_subject = Subject(name=name, code=code, dept=dept, semester=semester, 
                             teacher_id=teacher_id if teacher_id else None)
-        db.session.add(new_subject)
-        db.session.commit()
+        new_subject.save()
         flash('Subject added successfully!', 'success')
         return redirect(url_for('subjects'))
     
@@ -717,11 +705,10 @@ def subjects():
 def delete_subject(id):
     try:
         subject = Subject.query.get_or_404(id)
-        db.session.delete(subject)
-        db.session.commit()
-        flash('Subject deleted!', 'info')
+        if subject:
+            subject.delete()
+            flash('Subject deleted!', 'info')
     except Exception as e:
-        db.session.rollback()
         flash(f'Error deleting subject: {str(e)}', 'danger')
     return redirect(url_for('subjects'))
 
@@ -738,7 +725,7 @@ def edit_subject(id):
     teacher_id = request.form.get('teacher_id')
     subject.teacher_id = teacher_id if teacher_id else None
     
-    db.session.commit()
+    subject.save()
     
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
         return jsonify({'status': 'success', 'message': 'Subject updated successfully!'})
@@ -797,10 +784,8 @@ def attendance():
                     date=date_obj,
                     status=status
                 )
-                db.session.add(new_record)
+                new_record.save()
 
-        
-        db.session.commit()
         flash('Attendance marked successfully!', 'success')
         return redirect(url_for('dashboard'))
 
@@ -866,7 +851,7 @@ def reports():
     # Teachers can only see reports for their assigned classes
     if current_user.role == 'teacher':
         assigned_ids = [c.id for c in current_user.assigned_classes]
-        student_query = student_query.filter_by(class_id=assigned_ids)
+        student_query = student_query.where('class_id', 'in', assigned_ids)
     
     students = student_query.all()
     
@@ -884,7 +869,10 @@ def reports():
     if current_user.role == 'teacher':
         # Limit to assigned classes' students
         assigned_ids = [c.id for c in current_user.assigned_classes]
-        attendance_query = attendance_query.filter_by(class_id=assigned_ids) # Or handle in Python if needed
+        if assigned_ids:
+            attendance_query = attendance_query.where('class_id', 'in', assigned_ids)
+        else:
+            attendance_query = attendance_query.where('class_id', '==', 'NONE')
 
 
     recent_attendance = attendance_query.order_by('-date').limit(200).all()
