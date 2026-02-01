@@ -1,10 +1,8 @@
 Flask
-Flask-SQLAlchemy
 Flask-Login
 Werkzeug
 pandas
 openpyxl
-psycopg2-binary
 python-dotenv
 gunicorn
 firebase-admin

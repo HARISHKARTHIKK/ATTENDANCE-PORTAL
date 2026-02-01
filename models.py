@@ -4,35 +4,17 @@ from flask_login import UserMixin
 from datetime import datetime, date
 import os
 
-# Try to initialize Firebase
-# Try to initialize Firebase
-try:
-    if not firebase_admin._apps:
-        # Preferred: Use environment variable GOOGLE_APPLICATION_CREDENTIALS
-        # or it will automatically look for it if initialize_app() is called empty.
-        cred_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
-        if cred_path and os.path.exists(cred_path):
-            cred = credentials.Certificate(cred_path)
-            firebase_admin.initialize_app(cred)
-        else:
-            # Re-check for local file as fallback, but don't force it
-            local_cred = os.path.join(os.path.dirname(__file__), 'serviceAccountKey.json')
-            if os.path.exists(local_cred):
-                cred = credentials.Certificate(local_cred)
-                firebase_admin.initialize_app(cred)
-            else:
-                # Default initialization (looks for GOOGLE_APPLICATION_CREDENTIALS automatically)
-                firebase_admin.initialize_app()
-except Exception as e:
-    print(f"Error initializing Firebase: {e}")
-
-
+# Firebase is initialized in app.py to ensure environment variables are loaded first
 _db_client = None
 
 def get_db():
     global _db_client
     if _db_client is None:
-        _db_client = firestore.client()
+        try:
+            _db_client = firestore.client()
+        except Exception as e:
+            print(f"Error: Firestore client could not be initialized. Ensure Firebase Admin is initialized. {e}")
+            raise e
     return _db_client
 
 class FirestoreQuery:

@@ -1,5 +1,32 @@
 import os
+import json
+import firebase_admin
+from firebase_admin import credentials, firestore
 from dotenv import load_dotenv
+
+# 1. Initialize Firebase Admin SDK AT THE VERY TOP
+# This must happen before any models or Firestore clients are initialized
+load_dotenv()
+firebase_key = os.getenv('FIREBASE_KEY')
+
+if not firebase_admin._apps:
+    if firebase_key:
+        try:
+            # Parse the JSON string from environment variable
+            cred_dict = json.loads(firebase_key)
+            cred = credentials.Certificate(cred_dict)
+            firebase_admin.initialize_app(cred)
+            print("Firebase initialized successfully from FIREBASE_KEY")
+        except Exception as e:
+            print(f"Error initializing Firebase from FIREBASE_KEY: {e}")
+    else:
+        # If no FIREBASE_KEY, we try default credentials (helpful for local if GOOGLE_APPLICATION_CREDENTIALS is set)
+        try:
+            firebase_admin.initialize_app()
+            print("Firebase initialized with default credentials")
+        except Exception as e:
+            print(f"Firebase not initialized: FIREBASE_KEY missing and no default credentials found.")
+
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 import pandas as pd
@@ -30,7 +57,6 @@ def teacher_allowed(f):
     return decorated_function
 
 import secrets
-load_dotenv()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', secrets.token_hex(16))
