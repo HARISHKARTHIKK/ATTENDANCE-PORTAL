@@ -144,14 +144,35 @@ def dashboard():
             stats_map[cid]['absent'] += 1
 
     if current_user.role == 'in_charge':
-        cls = Classroom.query.where('id', 'in', current_user.assigned_classes).first() if current_user.assigned_classes else None
+        assigned_ids = [str(x) for x in current_user.assigned_classes if x is not None]
+        cls = None
+        if assigned_ids:
+            if len(assigned_ids) == 1:
+                cls = Classroom.query.where('id', '==', assigned_ids[0]).first()
+            elif len(assigned_ids) <= 10:
+                cls = Classroom.query.where('id', 'in', assigned_ids).first()
+            else:
+                # > 10: we just need one, but for consistency let's fetch all (usually small)
+                all_c = Classroom.query.all()
+                matches = [c for c in all_c if str(getattr(c, 'id', '')) in assigned_ids]
+                cls = matches[0] if matches else None
+            
         if cls:
             stats = stats_map.get(cls.id, {'present': 0, 'absent': 0})
             in_charge_data = {'present': stats['present'], 'absent': stats['absent'], 'class_name': cls.name}
     
     if current_user.role in ['hod', 'admin', 'teacher']:
         if current_user.role == 'teacher':
-            classes_to_show = Classroom.query.where('id', 'in', current_user.assigned_classes).all() if current_user.assigned_classes else []
+            assigned_ids = [str(x) for x in current_user.assigned_classes if x is not None]
+            if not assigned_ids:
+                classes_to_show = []
+            elif len(assigned_ids) == 1:
+                classes_to_show = Classroom.query.where('id', '==', assigned_ids[0]).all()
+            elif len(assigned_ids) <= 10:
+                classes_to_show = Classroom.query.where('id', 'in', assigned_ids).all()
+            else:
+                all_c = Classroom.query.all()
+                classes_to_show = [c for c in all_c if str(getattr(c, 'id', '')) in assigned_ids]
         else:
             classes_to_show = Classroom.query.all()
 
@@ -775,11 +796,18 @@ def attendance():
     if current_user.role == 'admin':
         all_classes = Classroom.query.all()
     else:
-        # Guard against empty current_user.assigned_classes list for Firestore 'in' query
-        if current_user.assigned_classes:
-            all_classes = Classroom.query.where('id', 'in', current_user.assigned_classes).all()
-        else:
+        # Safe Firestore IN query logic
+        assigned_ids = [str(x) for x in current_user.assigned_classes if x is not None]
+        if not assigned_ids:
             all_classes = []
+        elif len(assigned_ids) == 1:
+            all_classes = Classroom.query.where('id', '==', assigned_ids[0]).all()
+        elif len(assigned_ids) <= 10:
+            all_classes = Classroom.query.where('id', 'in', assigned_ids).all()
+        else:
+            # > 10: fetch and Python filter
+            all_c = Classroom.query.all()
+            all_classes = [c for c in all_c if str(getattr(c, 'id', '')) in assigned_ids]
 
     if request.method == 'POST':
         subject_id = request.form.get('subject_id')
@@ -884,13 +912,19 @@ def reports():
     
     # Teachers can only see reports for their assigned classes
     if current_user.role == 'teacher':
-        assigned_ids = current_user.assigned_classes
-        if assigned_ids:
-            student_query = student_query.where('class_id', 'in', assigned_ids)
-        else:
+        assigned_ids = [str(x) for x in current_user.assigned_classes if x is not None]
+        if not assigned_ids:
             student_query = student_query.where('class_id', '==', '__none__')
+        elif len(assigned_ids) == 1:
+            student_query = student_query.where('class_id', '==', assigned_ids[0])
+        elif len(assigned_ids) <= 10:
+            student_query = student_query.where('class_id', 'in', assigned_ids)
+        # For > 10, we'll fetch all (already filtered by dept/sem) and filter in Python below
     
     students = student_query.all()
+    if current_user.role == 'teacher' and len([str(x) for x in current_user.assigned_classes if x is not None]) > 10:
+        assigned_set = set([str(x) for x in current_user.assigned_classes if x is not None])
+        students = [s for s in students if str(getattr(s, 'class_id', '')) in assigned_set]
     
     # Base Attendance Query for Logs
     attendance_query = Attendance.query
@@ -909,14 +943,20 @@ def reports():
     
     if current_user.role == 'teacher':
         # Limit to assigned classes' students with an empty list guard
-        assigned_ids = current_user.assigned_classes
-        if assigned_ids:
-            attendance_query = attendance_query.where('class_id', 'in', assigned_ids)
-        else:
+        assigned_ids = [str(x) for x in current_user.assigned_classes if x is not None]
+        if not assigned_ids:
             attendance_query = attendance_query.where('class_id', '==', '__none__')
-
+        elif len(assigned_ids) <= 10:
+            if len(assigned_ids) == 1:
+                attendance_query = attendance_query.where('class_id', '==', assigned_ids[0])
+            else:
+                attendance_query = attendance_query.where('class_id', 'in', assigned_ids)
+        # For > 10, we retrieve all matching other filters and filter in Python below
 
     recent_attendance = attendance_query.order_by('-date').limit(200).all()
+    if current_user.role == 'teacher' and len([str(x) for x in current_user.assigned_classes if x is not None]) > 10:
+        assigned_set = set([str(x) for x in current_user.assigned_classes if x is not None])
+        recent_attendance = [a for a in recent_attendance if str(getattr(a, 'class_id', '')) in assigned_set][:200]
     
     # Metadata for filters - Optimized fetching
     all_subjects = Subject.query.all()
@@ -925,11 +965,15 @@ def reports():
     if current_user.role == 'admin':
         all_classes = all_classes_objs
     else:
-        # Guard for 'in' query in metadata
-        if current_user.assigned_classes:
-            all_classes = Classroom.query.where('id', 'in', current_user.assigned_classes).all()
-        else:
+        assigned_ids = [str(x) for x in current_user.assigned_classes if x is not None]
+        if not assigned_ids:
             all_classes = []
+        elif len(assigned_ids) == 1:
+            all_classes = Classroom.query.where('id', '==', assigned_ids[0]).all()
+        elif len(assigned_ids) <= 10:
+            all_classes = Classroom.query.where('id', 'in', assigned_ids).all()
+        else:
+            all_classes = [c for c in all_classes_objs if str(getattr(c, 'id', '')) in assigned_ids]
             
     all_teachers = User.query.filter_by(role='teacher').all()
     departments = list(set([c.dept for c in all_classes_objs]))
