@@ -312,6 +312,8 @@ def teachers():
         return redirect(url_for('teachers'))
     
     all_teachers = User.query.filter_by(role='teacher').all()
+    # Sort teachers by name
+    all_teachers.sort(key=lambda x: x.name.lower())
     all_classes = Classroom.query.all()
     class_map = {str(c.id): c.name for c in all_classes}
     return render_template('teachers.html', teachers=all_teachers, class_map=class_map)
@@ -330,6 +332,8 @@ def classes():
         flash(f'Class {name} added!', 'success')
         return redirect(url_for('classes'))
     all_classes = Classroom.query.all()
+    # Sort classes by name
+    all_classes.sort(key=lambda x: x.name.lower())
     departments = Department.query.all()
     return render_template('classes.html', classes=all_classes, departments=departments)
 
@@ -543,6 +547,8 @@ def students():
         return redirect(url_for('students'))
     
     all_students = Student.query.all()
+    # Sort students by roll no
+    all_students.sort(key=lambda x: x.roll_no.lower())
     all_classes = Classroom.query.all()
     all_depts = Department.query.all()
     class_map = {str(c.id): c.name for c in all_classes}
@@ -1319,6 +1325,8 @@ def departments():
         return redirect(url_for('departments'))
     
     all_depts = Department.query.all()
+    # Sort departments by name
+    all_depts.sort(key=lambda x: x.name.lower())
     return render_template('departments.html', departments=all_depts)
 
 @app.route('/delete_department/<id>')
@@ -1372,6 +1380,8 @@ def manage_security():
         return redirect(url_for('manage_security'))
     
     all_security = User.query.filter_by(role='security').all()
+    # Sort security by name
+    all_security.sort(key=lambda x: x.name.lower())
     return render_template('manage_security.html', security_users=all_security)
 
 @app.route('/delete_security/<id>')
@@ -1384,11 +1394,24 @@ def delete_security(id):
         flash('Security user deleted!', 'info')
     return redirect(url_for('manage_security'))
 
-# --- Security Portal (Security Only) ---
-@app.route('/security_portal', methods=['GET', 'POST'])
+@app.route('/portal/<status_type>', methods=['GET', 'POST'])
 @login_required
-@security_required
-def security_portal():
+def status_portal(status_type):
+    # Normalize status type for consistency
+    status_type = status_type.upper()
+    if status_type not in ['OD', 'ML', 'LATE']:
+        abort(404)
+    
+    # Check permissions
+    if status_type == 'LATE':
+        if current_user.role not in ['admin', 'hod', 'security']:
+            flash('Unauthorized Access!', 'danger')
+            return redirect(url_for('dashboard'))
+    else: # OD or ML
+        if current_user.role not in ['admin', 'hod']:
+            flash('Unauthorized Access!', 'danger')
+            return redirect(url_for('dashboard'))
+
     search_query = request.args.get('search', '')
     students = []
     if search_query:
@@ -1396,17 +1419,36 @@ def security_portal():
         all_students = Student.query.all()
         students = [s for s in all_students if search_query.lower() in s.name.lower() or search_query.lower() in s.roll_no.lower()]
     
-    return render_template('security_portal.html', students=students, search_query=search_query)
+    # Capitalize status for display (ML -> ML, OD -> OD, LATE -> Late)
+    display_status = status_type.title() if status_type == 'LATE' else status_type
+    
+    return render_template('status_portal.html', 
+                         students=students, 
+                         search_query=search_query, 
+                         status_type=status_type,
+                         display_status=display_status)
 
-@app.route('/security_mark_late/<student_id>', methods=['POST'])
+@app.route('/mark_status_global/<status_type>/<student_id>', methods=['POST'])
 @login_required
-@security_required
-def security_mark_late(student_id):
+def mark_status_global(status_type, student_id):
+    status_type = status_type.upper()
+    if status_type not in ['OD', 'ML', 'LATE']:
+        abort(404)
+        
+    # Check permissions
+    if status_type == 'LATE':
+        if current_user.role not in ['admin', 'hod', 'security']:
+            abort(403)
+    else: # OD or ML
+        if current_user.role not in ['admin', 'hod']:
+            abort(403)
+
     student = Student.query.get_or_404(student_id)
     today = datetime.utcnow().date()
+    # Ensure status is properly capitalized for database (Late, OD, ML)
+    db_status = status_type.title() if status_type == 'LATE' else status_type
     
-    # Logic: Mark 'Late' for the current date as a GLOBAL record (Subject Independent)
-    # Check if already marked for today
+    # Logic: Mark for the current date as a GLOBAL record (Subject Independent)
     existing = Attendance.query.filter_by(
         student_id=student.id, 
         subject_id='GLOBAL', 
@@ -1414,7 +1456,7 @@ def security_mark_late(student_id):
     ).first()
     
     if existing:
-        existing.status = 'Late'
+        existing.status = db_status
         existing.save()
     else:
         new_rec = Attendance(
@@ -1423,12 +1465,24 @@ def security_mark_late(student_id):
             class_id=student.class_id,
             teacher_id=current_user.id,
             date=today.strftime('%Y-%m-%d'),
-            status='Late'
+            status=db_status
         )
         new_rec.save()
         
-    flash(f'Marked {student.name} as Late for today (Global Entry)!', 'success')
-    return redirect(url_for('security_portal', search=request.args.get('search', '')))
+    flash(f'Marked {student.name} as {db_status} for today (Global Entry)!', 'success')
+    return redirect(url_for('status_portal', status_type=status_type, search=request.args.get('search', '')))
+
+@app.route('/security_portal', methods=['GET', 'POST'])
+@login_required
+@security_required
+def security_portal():
+    return redirect(url_for('status_portal', status_type='LATE', search=request.args.get('search', '')))
+
+@app.route('/security_mark_late/<student_id>', methods=['POST'])
+@login_required
+@security_required
+def security_mark_late(student_id):
+    return redirect(url_for('mark_status_global', status_type='LATE', student_id=student_id, search=request.args.get('search', '')))
 
 if __name__ == '__main__':
     app.run(debug=True, port=5001)

@@ -1,19 +1,23 @@
 {% extends "base.html" %}
 
-{% block title %}Security Portal - EduGate{% endblock %}
+{% block title %}{{ display_status }} Portal - EduGate{% endblock %}
 
 {% block content %}
 <div class="row mb-4">
     <div class="col-md-12">
-        <h2 class="fw-bold"><i class="bi bi-shield-lock-fill me-2 text-primary"></i>Security Portal</h2>
-        <p class="text-muted">Search for students and mark them as late for accurate tracking.</p>
+        <h2 class="fw-bold">
+            <i
+                class="bi {% if status_type == 'LATE' %}bi-clock-history{% elif status_type == 'OD' %}bi-briefcase{% else %}bi-hospital{% endif %} me-2 text-primary"></i>
+            {{ display_status }} Portal
+        </h2>
+        <p class="text-muted">Search for students and mark them as {{ display_status }} for today.</p>
     </div>
 </div>
 
 <!-- Search Section -->
 <div class="card border-0 shadow-sm mb-4">
     <div class="card-body p-4">
-        <form method="GET" action="{{ url_for('security_portal') }}" class="row g-3">
+        <form method="GET" action="{{ url_for('status_portal', status_type=status_type) }}" class="row g-3">
             <div class="col-md-10">
                 <div class="input-group">
                     <span class="input-group-text bg-light border-0"><i class="bi bi-search"></i></span>
@@ -54,10 +58,11 @@
                             <td>{{ student.dept }}</td>
                             <td class="text-center">
                                 <form
-                                    action="{{ url_for('security_mark_late', student_id=student.id, search=search_query) }}"
+                                    action="{{ url_for('mark_status_global', status_type=status_type, student_id=student.id, search=search_query) }}"
                                     method="POST" class="d-inline">
-                                    <button type="submit" class="btn btn-warning btn-sm fw-bold px-3">
-                                        <i class="bi bi-clock-history me-1"></i> Mark Late
+                                    <button type="submit"
+                                        class="btn {% if status_type == 'LATE' %}btn-warning{% elif status_type == 'OD' %}btn-info{% else %}btn-danger{% endif %} btn-sm fw-bold px-3">
+                                        <i class="bi bi-check-circle me-1"></i> Mark {{ display_status }}
                                     </button>
                                 </form>
                             </td>

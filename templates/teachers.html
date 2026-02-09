@@ -33,7 +33,7 @@
             <tbody>
                 {% for teacher in teachers %}
                 <tr>
-                    <td class="ps-4 text-muted">#{{ teacher.id }}</td>
+                    <td class="ps-4 text-muted">#{{ teacher.display_id }}</td>
                     <td class="fw-semibold">{{ teacher.name }}</td>
                     <td>{{ teacher.email }}</td>
                     <td>{{ teacher.phone or 'N/A' }}</td>

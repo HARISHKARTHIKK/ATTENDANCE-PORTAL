@@ -241,7 +241,7 @@
             </button>
         </div>
         <div class="sidebar-menu">
-            {% if current_user.role == 'admin' %}
+            {% if current_user.role in ['admin', 'hod'] %}
             <!-- HOD / Super Admin Links -->
             <div class="nav-item">
                 <a href="{{ url_for('dashboard') }}"
@@ -259,6 +259,25 @@
                 <a href="{{ url_for('students') }}"
                     class="nav-link {% if request.endpoint == 'students' %}active{% endif %}">
                     <i class="bi bi-people"></i> Students
+                </a>
+            </div>
+            <!-- Status Portals -->
+            <div class="nav-item">
+                <a href="{{ url_for('status_portal', status_type='OD') }}"
+                    class="nav-link {% if request.endpoint == 'status_portal' and request.view_args.status_type == 'OD' %}active{% endif %}">
+                    <i class="bi bi-briefcase"></i> OD Portal
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ url_for('status_portal', status_type='ML') }}"
+                    class="nav-link {% if request.endpoint == 'status_portal' and request.view_args.status_type == 'ML' %}active{% endif %}">
+                    <i class="bi bi-hospital"></i> ML Portal
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ url_for('status_portal', status_type='LATE') }}"
+                    class="nav-link {% if request.endpoint == 'status_portal' and request.view_args.status_type == 'LATE' %}active{% endif %}">
+                    <i class="bi bi-clock-history"></i> Late Portal
                 </a>
             </div>
             <div class="nav-item">
@@ -334,8 +353,8 @@
             {% elif current_user.role == 'security' %}
             <!-- Security Links -->
             <div class="nav-item">
-                <a href="{{ url_for('security_portal') }}"
-                    class="nav-link {% if request.endpoint == 'security_portal' %}active{% endif %}">
+                <a href="{{ url_for('status_portal', status_type='LATE') }}"
+                    class="nav-link {% if request.endpoint == 'status_portal' and request.view_args.status_type == 'LATE' %}active{% endif %}">
                     <i class="bi bi-shield-lock"></i> Security Portal
                 </a>
             </div>

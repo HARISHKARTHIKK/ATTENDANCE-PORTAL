@@ -30,7 +30,7 @@
             <tbody>
                 {% for user in security_users %}
                 <tr>
-                    <td class="ps-4 text-muted">#{{ user.id }}</td>
+                    <td class="ps-4 text-muted">#{{ user.display_id }}</td>
                     <td class="fw-semibold">{{ user.name }}</td>
                     <td>{{ user.email }}</td>
                     <td>{{ user.phone or 'N/A' }}</td>

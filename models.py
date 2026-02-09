@@ -176,6 +176,17 @@ class FirestoreModel(metaclass=ModelMeta):
         if self.id:
             get_db().collection(self.__collection__).document(str(self.id)).delete()
 
+    @property
+    def display_id(self):
+        if not self.id: return "000000"
+        import hashlib
+        # Generate a stable numeric hash from the string ID
+        hash_obj = hashlib.md5(str(self.id).encode())
+        hash_hex = hash_obj.hexdigest()
+        # Convert hex to int and get last 6 digits
+        num_id = int(hash_hex, 16) % 1000000
+        return f"{num_id:06d}"
+
 class DBWrapper:
     def __init__(self):
         self.session = FirestoreSession()
@@ -219,23 +230,29 @@ class Student(FirestoreModel):
         
         # Filter out global records for total session count
         session_records = [r for r in records if getattr(r, 'subject_id', '') != 'GLOBAL']
+        global_records = [r for r in records if getattr(r, 'subject_id', '') == 'GLOBAL']
         total = len(session_records)
         
         if total == 0:
-            # Check if there are any global lates even if no classes marked yet
-            global_lates = len([r for r in records if getattr(r, 'subject_id', '') == 'GLOBAL' and getattr(r, 'status', '') == 'Late'])
-            return 0, 0, 0.0, 0, 0, global_lates
+            # Check if there are any global stats even if no classes marked yet
+            global_lates = len([r for r in global_records if getattr(r, 'status', '') == 'Late'])
+            global_od = len([r for r in global_records if getattr(r, 'status', '') == 'OD'])
+            global_ml = len([r for r in global_records if getattr(r, 'status', '') == 'ML'])
+            return 0, 0, 0.0, global_od, global_ml, global_lates
         
         present = len([r for r in session_records if getattr(r, 'status', '') == 'Present'])
-        od = len([r for r in session_records if getattr(r, 'status', '') == 'OD'])
-        ml = len([r for r in session_records if getattr(r, 'status', '') == 'ML'])
+        # OD and ML can be from specific sessions or marked globally for the day
+        od = len([r for r in session_records if getattr(r, 'status', '') == 'OD']) + \
+             len([r for r in global_records if getattr(r, 'status', '') == 'OD'])
+             
+        ml = len([r for r in session_records if getattr(r, 'status', '') == 'ML']) + \
+             len([r for r in global_records if getattr(r, 'status', '') == 'ML'])
         
         # Lates can be from subject sessions or global (security)
         late = len([r for r in records if getattr(r, 'status', '') == 'Late'])
         
         # 3 Lates = 1 Leave (Absent)
         # We calculate effective presence as (Total Potential Presence) - (Penalty)
-        # Total Potential Presence = present + od + ml + (all session-based lates)
         session_lates = len([r for r in session_records if getattr(r, 'status', '') == 'Late'])
         effective_presence = present + od + ml + session_lates
         
