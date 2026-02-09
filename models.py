@@ -3,7 +3,7 @@ from firebase_admin import credentials, firestore
 from flask_login import UserMixin
 from datetime import datetime, date
 import os
-
+import hashlib
 # Firebase is initialized in app.py to ensure environment variables are loaded first
 _db_client = None
 
@@ -97,8 +97,22 @@ class FirestoreQuery:
         return res[0] if res else None
 
     def count(self):
-        # For simplicity in this migration
-        return len(self.all())
+        # Native Firestore count aggregation (much faster than fetching all docs)
+        collection_ref = self._get_collection()
+        if not collection_ref: return 0
+        query = collection_ref
+        for f in self.filters:
+            val = f[2]
+            if isinstance(val, (date, datetime)):
+                val = val.strftime("%Y-%m-%d")
+            query = query.where(f[0], f[1], val)
+        
+        try:
+            # count().get() returns an aggregation results object
+            return query.count().get()[0][0].value
+        except Exception as e:
+            print(f"Firestore count() error: {e}")
+            return len(self.all())
 
     def get(self, doc_id):
         collection_ref = self._get_collection()
@@ -179,7 +193,6 @@ class FirestoreModel(metaclass=ModelMeta):
     @property
     def display_id(self):
         if not self.id: return "000000"
-        import hashlib
         # Generate a stable numeric hash from the string ID
         hash_obj = hashlib.md5(str(self.id).encode())
         hash_hex = hash_obj.hexdigest()

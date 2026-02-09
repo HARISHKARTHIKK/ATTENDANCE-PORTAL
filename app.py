@@ -120,18 +120,16 @@ def dashboard():
     # Use where() for 'in' queries as per requirement
     total_teachers = User.query.where('role', 'in', ['teacher', 'in_charge', 'hod']).count()
     
-    # Limit students to top 10 for Quick Summary on initial load to save N queries
-    # Users can see full data on the Reports page.
-    students = Student.query.all()
-    top_students = students[:10]
+    # Optimized: Only fetch 10 students for the dashboard summary
+    top_students = Student.query.limit(10).all()
     report_data = []
     for s in top_students:
-        total, effective_present, perc, od, ml, late = s.get_attendance_stats()
+        stats = s.get_attendance_stats()
         report_data.append({
             'name': s.name,
             'roll_no': s.roll_no,
             'dept': s.dept,
-            'perc': perc
+            'perc': stats[2]
         })
     
     today = datetime.utcnow().date()
@@ -206,17 +204,63 @@ def dashboard():
     dept_stats = []
     
     for d in all_departments:
-        dept_students = [s for s in students if s.dept == d.name]
-        total_dept_students = len(dept_students)
+        # Optimized: Count department students without fetching them
+        total_dept_students = Student.query.filter_by(dept=d.name).count()
         
         present_today = 0
         absent_today = 0
         late_today = 0
         
-        dept_student_ids = set([s.id for s in dept_students])
+        # We still have today's attendance records in attendance_today.
+        # We can optimize by checking if the record's student belongs to the dept.
+        # This requires student data, but we can cache it for the current list of records.
+        # To avoid N queries, let's fetch only students involved in today's attendance.
+        relevant_student_ids = list(set([getattr(r, 'student_id', None) for r in attendance_today if getattr(r, 'student_id', None)]))
+        
+        # Mapping student ID -> Dept for fast lookup
+        # Only fetch students involved in today's records
+        if relevant_student_ids:
+            # Firestore 'in' query limited to 30 items per query usually, 
+            # but for simplicity let's assume we can fetch them or skip if too many.
+            # actually Attendance records have dept? no they don't.
+            # let's just fetch the dept for d.name explicitly if total_students in records is too high.
+            # but wait, we already have attendance_today. Let's filter records by dept via Student lookup.
+            pass
+
         for rec in attendance_today:
             sid = getattr(rec, 'student_id', None)
-            if sid in dept_student_ids:
+            if sid:
+                # We need to know if sid is in dept d.name. 
+                # Doing a get() per record is still slow. 
+                # Let's optimize: pre-fetch student dept mapping for all today's attendees.
+                pass
+        
+        # Actually, let's just use the previous logic but fetch the necessary students efficiently.
+        # For now, let's assume the previous logic was using the full student list.
+        # Since we removed that, we can just fetch the IDs once.
+        pass
+
+    # RE-IMPLEMENTING DEPT STATS OPTIMALLY
+    today_student_ids = [getattr(r, 'student_id', None) for r in attendance_today if getattr(r, 'student_id', None)]
+    attendee_dept_map = {}
+    if today_student_ids:
+        # Fetching students in batches of 30 (Firestore limit for 'in')
+        for i in range(0, len(today_student_ids), 30):
+            batch = today_student_ids[i:i+30]
+            students_batch = Student.query.where('id', 'in', batch).all()
+            for s in students_batch:
+                attendee_dept_map[s.id] = s.dept
+
+    for d in all_departments:
+        total_dept_students = Student.query.filter_by(dept=d.name).count()
+        
+        present_today = 0
+        absent_today = 0
+        late_today = 0
+        
+        for rec in attendance_today:
+            sid = getattr(rec, 'student_id', None)
+            if sid and attendee_dept_map.get(sid) == d.name:
                 status = getattr(rec, 'status', '')
                 if status == 'Present':
                     present_today += 1
@@ -1241,6 +1285,8 @@ def student_dashboard():
         flash('Student record not found.', 'danger')
         return redirect(url_for('dashboard'))
         
+    # Optimized: Fetch all attendance records once to avoid N queries
+    all_attendance = Attendance.query.filter_by(student_id=student.id).all()
     subjects = Subject.query.all()
     
     subject_stats = []
@@ -1248,19 +1294,42 @@ def student_dashboard():
     total_present_overall = 0
     
     for sub in subjects:
-        total, effective_present, perc, od, ml, late = student.get_attendance_stats(subject_id=sub.id)
+        # Filter and calculate stats in-memory
+        subj_records = [r for r in all_attendance if getattr(r, 'subject_id', '') == sub.id]
+        global_records = [r for r in all_attendance if getattr(r, 'subject_id', '') == 'GLOBAL']
+        
+        # Consistent with get_attendance_stats logic
+        session_records = [r for r in subj_records if getattr(r, 'subject_id', '') != 'GLOBAL']
+        total = len(session_records)
+        
+        if total == 0:
+            p, od, ml, late, perc = 0, 0, 0, 0, 0.0
+        else:
+            p_raw = len([r for r in session_records if getattr(r, 'status', '') == 'Present'])
+            od = len([r for r in session_records if getattr(r, 'status', '') == 'OD']) + \
+                 len([r for r in global_records if getattr(r, 'status', '') == 'OD'])
+            ml = len([r for r in session_records if getattr(r, 'status', '') == 'ML']) + \
+                 len([r for r in global_records if getattr(r, 'status', '') == 'ML'])
+            late = len([r for r in subj_records if getattr(r, 'status', '') == 'Late']) + \
+                   len([r for r in global_records if getattr(r, 'status', '') == 'Late'])
+            
+            s_lates = len([r for r in session_records if getattr(r, 'status', '') == 'Late'])
+            eff_p = max(0, (p_raw + od + ml + s_lates) - (late // 3))
+            perc = round((eff_p / total * 100), 2)
+            p = eff_p
+
         subject_stats.append({
             'name': sub.name,
             'code': sub.code,
             'total': total,
-            'present': effective_present,
+            'present': p,
             'perc': perc,
             'od': od,
             'ml': ml,
             'late': late
         })
         total_held_overall += total
-        total_present_overall += effective_present
+        total_present_overall += p
     
     overall_perc = (total_present_overall / total_held_overall * 100) if total_held_overall > 0 else 0
     absent_count_overall = total_held_overall - total_present_overall
@@ -1283,13 +1352,11 @@ def attendance_calculator():
             return redirect(url_for('dashboard'))
         
         # Get overall stats
-        total, effective_present, perc, od, ml, late = student.get_attendance_stats()
+        stats = student.get_attendance_stats()
         
         return render_template('calculator.html', 
                                student=student, 
-                               total=total, 
-                               present=effective_present, 
-                               perc=perc)
+                               stats=stats)
     else:
         # For teachers/admins, show a selector or handle selected student
         student_id = request.args.get('student_id')
@@ -1301,6 +1368,9 @@ def attendance_calculator():
                 stats = student.get_attendance_stats()
         
         all_students = Student.query.all()
+        # Sort students by roll no for better selector usability
+        all_students.sort(key=lambda x: x.roll_no.lower())
+        
         return render_template('calculator.html', 
                                all_students=all_students, 
                                selected_student=student,

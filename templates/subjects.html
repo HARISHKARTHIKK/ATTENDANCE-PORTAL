@@ -34,8 +34,9 @@
                     <i class="bi bi-journal-code fs-3"></i>
                 </div>
                 <div class="d-flex gap-2">
+                    <span class="badge bg-light text-muted border-0 small">#{{ subject.display_id }}</span>
                     {% if current_user.role == 'admin' %}
-                    <button class="btn btn-sm btn-link text-primary p-0" onclick="editSubject({{ subject.id }})">
+                    <button class="btn btn-sm btn-link text-primary p-0" onclick="editSubject('{{ subject.id }}')">
                         <i class="bi bi-pencil-square fs-5"></i>
                     </button>
                     <a href="{{ url_for('delete_subject', id=subject.id) }}" class="btn btn-sm btn-link text-danger p-0"
