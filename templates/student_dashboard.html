@@ -56,7 +56,20 @@
                         <h2 class="fw-bold mb-0 text-danger">{{ total_absent }}</h2>
                     </div>
                 </div>
-                <div class="col-md-6">
+                <div class="col-md-4">
+                    <div class="card bg-white h-100 p-4 border-start border-4 border-info">
+                        <h6 class="text-uppercase mb-2 text-muted small fw-bold">OD / ML</h6>
+                        <h2 class="fw-bold mb-0 text-info">{{ student.get_attendance_stats()[3] +
+                            student.get_attendance_stats()[4] }}</h2>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card bg-white h-100 p-4 border-start border-4 border-secondary">
+                        <h6 class="text-uppercase mb-2 text-muted small fw-bold">Lates</h6>
+                        <h2 class="fw-bold mb-0 text-secondary">{{ student.get_attendance_stats()[5] }}</h2>
+                    </div>
+                </div>
+                <div class="col-md-4">
                     <div class="card stats-card h-100 p-4">
                         <h6 class="text-uppercase mb-2 opacity-75 small fw-bold">Percentage</h6>
                         <h2 class="fw-bold mb-0">{{ overall_perc }}%</h2>
@@ -85,9 +98,12 @@
                     <tr>
                         <th class="ps-3">Subject Name</th>
                         <th>Code</th>
-                        <th class="text-center">Total Classes</th>
+                        <th class="text-center">Total</th>
                         <th class="text-center">Attended</th>
-                        <th style="width: 250px;">Status</th>
+                        <th class="text-center">OD</th>
+                        <th class="text-center">ML</th>
+                        <th class="text-center">Late</th>
+                        <th style="width: 200px;">Status</th>
                         <th class="text-end pe-3">%</th>
                     </tr>
                 </thead>
@@ -97,7 +113,10 @@
                         <td class="ps-3 fw-bold">{{ sub.name }}</td>
                         <td><span class="badge bg-light text-dark border">{{ sub.code }}</span></td>
                         <td class="text-center">{{ sub.total }}</td>
-                        <td class="text-center text-primary fw-bold">{{ sub.present }}</td>
+                        <td class="text-center text-success fw-bold">{{ sub.present }}</td>
+                        <td class="text-center text-info">{{ sub.od }}</td>
+                        <td class="text-center text-warning">{{ sub.ml }}</td>
+                        <td class="text-center text-secondary">{{ sub.late }}</td>
                         <td>
                             <div class="progress" style="height: 8px; border-radius: 4px;">
                                 <div class="progress-bar {% if sub.perc < 75 %}bg-danger{% elif sub.perc < 85 %}bg-warning{% else %}bg-success{% endif %}"
@@ -118,15 +137,24 @@
             const attendanceChart = new Chart(ctx, {
                 type: 'pie',
                 data: {
-                    labels: ['Present', 'Absent'],
+                    labels: ['Present', 'Absent', 'OD', 'ML', 'Late'],
                     datasets: [{
-                        data: [{{ total_present }}, {{ total_absent }}],
-                backgroundColor: [
-                    '#2ecc71', // Green for Present
-                    '#e74c3c'  // Red for Absent
-                ],
-                borderWidth: 0,
-                hoverOffset: 10
+                        data: [
+                            {{ total_present }},
+                    {{ total_absent }},
+                            {{ student.get_attendance_stats()[3] }},
+            {{ student.get_attendance_stats()[4] }},
+            {{ student.get_attendance_stats()[5] }}
+                        ],
+            backgroundColor: [
+            '#2ecc71', // Green for Present
+            '#e74c3c', // Red for Absent
+            '#3498db', // Blue for OD
+            '#f1c40f', // Yellow for ML
+            '#95a5a6'  // Grey for Late
+        ],
+            borderWidth: 0,
+            hoverOffset: 10
             }]
             },
             options: {

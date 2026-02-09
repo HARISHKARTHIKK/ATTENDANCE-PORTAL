@@ -92,8 +92,8 @@
                         <label class="form-label small fw-bold text-uppercase text-muted">Department</label>
                         <select name="dept" class="form-select bg-light border-0 py-2" required>
                             <option value="">Select Dept</option>
-                            {% for dept in departments %}
-                            <option value="{{ dept }}">{{ dept }}</option>
+                            {% for d in departments %}
+                            <option value="{{ d.name }}">{{ d.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -150,8 +150,8 @@
                         <label class="form-label small fw-bold text-uppercase text-muted">Department</label>
                         <select name="dept" id="edit_dept" class="form-select bg-light border-0 py-2" required>
                             <option value="">Select Dept</option>
-                            {% for dept in departments %}
-                            <option value="{{ dept }}">{{ dept }}</option>
+                            {% for d in departments %}
+                            <option value="{{ d.name }}">{{ d.name }}</option>
                             {% endfor %}
                         </select>
                     </div>

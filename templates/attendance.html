@@ -128,9 +128,19 @@
                                 <td class="text-center">
                                     <div class="btn-group" role="group">
                                         <input type="radio" class="btn-check" name="status_${student.id}" id="present_${student.id}" value="Present" checked>
-                                        <label class="btn btn-outline-success px-4" for="present_${student.id}">Present</label>
+                                        <label class="btn btn-outline-success px-3 py-2 fw-bold" for="present_${student.id}">P</label>
+                                        
                                         <input type="radio" class="btn-check" name="status_${student.id}" id="absent_${student.id}" value="Absent">
-                                        <label class="btn btn-outline-danger px-4" for="absent_${student.id}">Absent</label>
+                                        <label class="btn btn-outline-danger px-3 py-2 fw-bold" for="absent_${student.id}">A</label>
+
+                                        <input type="radio" class="btn-check" name="status_${student.id}" id="od_${student.id}" value="OD">
+                                        <label class="btn btn-outline-info px-3 py-2 fw-bold" for="od_${student.id}">OD</label>
+
+                                        <input type="radio" class="btn-check" name="status_${student.id}" id="ml_${student.id}" value="ML">
+                                        <label class="btn btn-outline-warning px-3 py-2 fw-bold" for="ml_${student.id}">ML</label>
+
+                                        <input type="radio" class="btn-check" name="status_${student.id}" id="late_${student.id}" value="Late">
+                                        <label class="btn btn-outline-secondary px-3 py-2 fw-bold" for="late_${student.id}">L</label>
                                     </div>
                                 </td>
                             </tr>`;

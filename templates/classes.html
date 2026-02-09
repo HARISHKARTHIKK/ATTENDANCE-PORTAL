@@ -80,10 +80,9 @@
                         <label class="form-label small fw-bold text-uppercase text-muted">Department</label>
                         <select name="dept" class="form-select bg-light border-0 py-2" required>
                             <option value="">Select Department</option>
-                            <option value="Computer Science">Computer Science</option>
-                            <option value="Electronics">Electronics</option>
-                            <option value="Mechanical">Mechanical</option>
-                            <option value="Civil">Civil</option>
+                            {% for d in departments %}
+                            <option value="{{ d.name }}">{{ d.name }}</option>
+                            {% endfor %}
                         </select>
                     </div>
                     <div class="row">
@@ -134,10 +133,9 @@
                     <div class="mb-3">
                         <label class="form-label small fw-bold text-uppercase text-muted">Department</label>
                         <select id="edit_class_dept" name="dept" class="form-select bg-light border-0 py-2" required>
-                            <option value="Computer Science">Computer Science</option>
-                            <option value="Electronics">Electronics</option>
-                            <option value="Mechanical">Mechanical</option>
-                            <option value="Civil">Civil</option>
+                            {% for d in departments %}
+                            <option value="{{ d.name }}">{{ d.name }}</option>
+                            {% endfor %}
                         </select>
                     </div>
                     <div class="row">

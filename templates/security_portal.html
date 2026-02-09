@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}Security Portal - EduGate{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-12">
+        <h2 class="fw-bold"><i class="bi bi-shield-lock-fill me-2 text-primary"></i>Security Portal</h2>
+        <p class="text-muted">Search for students and mark them as late for accurate tracking.</p>
+    </div>
+</div>
+
+<!-- Search Section -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body p-4">
+        <form method="GET" action="{{ url_for('security_portal') }}" class="row g-3">
+            <div class="col-md-10">
+                <div class="input-group">
+                    <span class="input-group-text bg-light border-0"><i class="bi bi-search"></i></span>
+                    <input type="text" name="search" class="form-control bg-light border-0 py-2"
+                        placeholder="Search by Name or Roll Number..." value="{{ search_query }}">
+                </div>
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-primary w-100 py-2">Search</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Results Section -->
+{% if search_query %}
+<div class="row g-4">
+    <div class="col-md-12">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white py-3">
+                <h5 class="mb-0 fw-bold">Search Results for "{{ search_query }}"</h5>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="bg-light">
+                        <tr>
+                            <th class="ps-4">Roll No</th>
+                            <th>Student Name</th>
+                            <th>Department</th>
+                            <th class="text-center">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for student in students %}
+                        <tr>
+                            <td class="ps-4 fw-bold text-muted">{{ student.roll_no }}</td>
+                            <td class="fw-semibold">{{ student.name }}</td>
+                            <td>{{ student.dept }}</td>
+                            <td class="text-center">
+                                <form
+                                    action="{{ url_for('security_mark_late', student_id=student.id, search=search_query) }}"
+                                    method="POST" class="d-inline">
+                                    <button type="submit" class="btn btn-warning btn-sm fw-bold px-3">
+                                        <i class="bi bi-clock-history me-1"></i> Mark Late
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="4" class="text-center py-5">
+                                <i class="bi bi-person-exclamation fs-1 text-muted d-block mb-3"></i>
+                                <p class="text-muted">No students found matching your search.</p>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="text-center py-5">
+    <i class="bi bi-search fs-1 text-muted d-block mb-3"></i>
+    <p class="text-muted fs-5">Enter a name or roll number above to find a student.</p>
+</div>
+{% endif %}
+{% endblock %}

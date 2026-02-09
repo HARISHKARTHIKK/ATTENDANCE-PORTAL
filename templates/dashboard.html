@@ -178,6 +178,87 @@
 </div>
 {% endif %}
 
+<!-- Department Wise Attendance -->
+<div class="row mb-5">
+    <div class="col-12">
+        <div class="d-flex align-items-center mb-4">
+            <h4 class="fw-bold mb-0"><i class="bi bi-diagram-3 me-2 text-primary"></i>Department Wise Statistics</h4>
+            <div class="ms-auto">
+                <a href="{{ url_for('departments') }}" class="btn btn-sm btn-outline-primary">Manage Depts</a>
+            </div>
+        </div>
+    </div>
+    {% for dept in dept_stats %}
+    <div class="col-12 col-md-6 col-lg-4 mb-4">
+        <div class="card border-0 shadow-sm h-100 overflow-hidden" style="border-radius: 20px;">
+            <div class="card-header bg-white border-0 pt-4 px-4 pb-0 d-flex justify-content-between align-items-center">
+                <h5 class="fw-bold mb-0 text-truncate" style="max-width: 70%;">{{ dept.name }}</h5>
+                <span class="badge bg-primary-subtle text-primary px-3">{{ dept.code }}</span>
+            </div>
+            <div class="card-body p-4">
+                <div class="row text-center mb-4">
+                    <div class="col-4 border-end">
+                        <div class="text-muted small text-uppercase fw-bold mb-1" style="font-size: 0.65rem;">Total
+                        </div>
+                        <div class="h5 fw-bold mb-0 text-primary">{{ dept.total_students }}</div>
+                    </div>
+                    <div class="col-4 border-end">
+                        <div class="text-muted small text-uppercase fw-bold mb-1" style="font-size: 0.65rem;">Present
+                        </div>
+                        <div class="h5 fw-bold mb-0 text-success">{{ dept.present }}</div>
+                    </div>
+                    <div class="col-4">
+                        <div class="text-muted small text-uppercase fw-bold mb-1" style="font-size: 0.65rem;">Absent
+                        </div>
+                        <div class="h5 fw-bold mb-0 text-danger">{{ dept.absent }}</div>
+                    </div>
+                </div>
+
+                {% set total_marked = dept.present + dept.absent %}
+                {% if total_marked > 0 %}
+                {% set perc = (dept.present / total_marked * 100)|round(1) %}
+                {% else %}
+                {% set perc = 0 %}
+                {% endif %}
+
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="text-muted small fw-bold">Live Presence</span>
+                    <span
+                        class="badge {% if perc >= 75 %}bg-success{% elif perc >= 50 %}bg-warning{% else %}bg-danger{% endif %} rounded-pill">
+                        {{ perc }}%
+                    </span>
+                </div>
+                <div class="progress" style="height: 8px; border-radius: 4px;">
+                    <div class="progress-bar {% if perc >= 75 %}bg-success{% elif perc >= 50 %}bg-warning{% else %}bg-danger{% endif %}"
+                        role="progressbar" style="width: {{ perc }}%"></div>
+                </div>
+
+                <div class="mt-3 d-flex align-items-center text-muted small">
+                    <i class="bi bi-clock-history me-2"></i>
+                    <span>{{ dept.late }} case(s) marked late</span>
+                </div>
+            </div>
+            <div class="card-footer bg-light border-0 py-3 px-4">
+                <a href="{{ url_for('reports', dept=dept.name) }}"
+                    class="btn btn-link btn-sm p-0 text-decoration-none fw-bold">
+                    Analysis View <i class="bi bi-arrow-right ms-1"></i>
+                </a>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="col-12 text-center py-5">
+        <div class="card p-5 border-0 shadow-sm" style="border-radius: 20px;">
+            <i class="bi bi-building-exclamation text-muted mb-3" style="font-size: 3rem;"></i>
+            <h5 class="text-muted">No departments found</h5>
+            <p class="text-muted small mb-4">Start by adding departments to see their analytics here.</p>
+            <div>
+                <a href="{{ url_for('departments') }}" class="btn btn-primary px-4">Add Department</a>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
 
 <div class="row">
     <div class="col-12 col-md-12">

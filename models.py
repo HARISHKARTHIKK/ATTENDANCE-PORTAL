@@ -201,6 +201,10 @@ class User(UserMixin, FirestoreModel):
 
 class Department(FirestoreModel):
     __collection__ = 'departments'
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if not hasattr(self, 'name'): self.name = ""
+        if not hasattr(self, 'code'): self.code = ""
 
 class Classroom(FirestoreModel):
     __collection__ = 'classrooms'
@@ -212,11 +216,35 @@ class Student(FirestoreModel):
         if subject_id:
             query = query.filter_by(subject_id=subject_id)
         records = query.all()
-        total = len(records)
-        if total == 0: return 0, 0, 0.0
-        present = len([r for r in records if getattr(r, 'status', '') == 'Present'])
-        percentage = (present / total) * 100
-        return total, present, round(percentage, 2)
+        
+        # Filter out global records for total session count
+        session_records = [r for r in records if getattr(r, 'subject_id', '') != 'GLOBAL']
+        total = len(session_records)
+        
+        if total == 0:
+            # Check if there are any global lates even if no classes marked yet
+            global_lates = len([r for r in records if getattr(r, 'subject_id', '') == 'GLOBAL' and getattr(r, 'status', '') == 'Late'])
+            return 0, 0, 0.0, 0, 0, global_lates
+        
+        present = len([r for r in session_records if getattr(r, 'status', '') == 'Present'])
+        od = len([r for r in session_records if getattr(r, 'status', '') == 'OD'])
+        ml = len([r for r in session_records if getattr(r, 'status', '') == 'ML'])
+        
+        # Lates can be from subject sessions or global (security)
+        late = len([r for r in records if getattr(r, 'status', '') == 'Late'])
+        
+        # 3 Lates = 1 Leave (Absent)
+        # We calculate effective presence as (Total Potential Presence) - (Penalty)
+        # Total Potential Presence = present + od + ml + (all session-based lates)
+        session_lates = len([r for r in session_records if getattr(r, 'status', '') == 'Late'])
+        effective_presence = present + od + ml + session_lates
+        
+        # Penalty is 1 day off for every 3 lates (including global ones)
+        penalty = late // 3
+        effective_present = max(0, effective_presence - penalty)
+        
+        percentage = (effective_present / total) * 100
+        return total, effective_present, round(percentage, 2), od, ml, late
 
 class Subject(FirestoreModel):
     __collection__ = 'subjects'

@@ -55,6 +55,15 @@ def teacher_allowed(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def security_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated or current_user.role != 'security':
+            flash('Unauthorized Access! Security only.', 'danger')
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
 import secrets
 
 app = Flask(__name__)
@@ -117,7 +126,7 @@ def dashboard():
     top_students = students[:10]
     report_data = []
     for s in top_students:
-        total, present, perc = s.get_attendance_stats()
+        total, effective_present, perc, od, ml, late = s.get_attendance_stats()
         report_data.append({
             'name': s.name,
             'roll_no': s.roll_no,
@@ -137,11 +146,19 @@ def dashboard():
         cid = getattr(rec, 'class_id', None)
         if not cid: continue
         if cid not in stats_map:
-            stats_map[cid] = {'present': 0, 'absent': 0}
-        if rec.status == 'Present':
+            stats_map[cid] = {'present': 0, 'absent': 0, 'od': 0, 'ml': 0, 'late': 0}
+        
+        status = getattr(rec, 'status', '')
+        if status == 'Present':
             stats_map[cid]['present'] += 1
-        elif rec.status == 'Absent':
+        elif status == 'Absent':
             stats_map[cid]['absent'] += 1
+        elif status == 'OD':
+            stats_map[cid]['od'] += 1
+        elif status == 'ML':
+            stats_map[cid]['ml'] += 1
+        elif status == 'Late':
+            stats_map[cid]['late'] += 1
 
     if current_user.role == 'in_charge':
         assigned_ids = [str(x) for x in current_user.assigned_classes if x is not None]
@@ -184,6 +201,39 @@ def dashboard():
                 'absent': stats['absent']
             })
 
+    # Department Wise stats
+    all_departments = Department.query.all()
+    dept_stats = []
+    
+    for d in all_departments:
+        dept_students = [s for s in students if s.dept == d.name]
+        total_dept_students = len(dept_students)
+        
+        present_today = 0
+        absent_today = 0
+        late_today = 0
+        
+        dept_student_ids = set([s.id for s in dept_students])
+        for rec in attendance_today:
+            sid = getattr(rec, 'student_id', None)
+            if sid in dept_student_ids:
+                status = getattr(rec, 'status', '')
+                if status == 'Present':
+                    present_today += 1
+                elif status == 'Absent':
+                    absent_today += 1
+                elif status == 'Late':
+                    late_today += 1
+        
+        dept_stats.append({
+            'name': d.name,
+            'code': d.code,
+            'total_students': total_dept_students,
+            'present': present_today,
+            'absent': absent_today,
+            'late': late_today
+        })
+
     return render_template('dashboard.html', 
                            total_students=total_students, 
                            total_subjects=total_subjects,
@@ -192,6 +242,7 @@ def dashboard():
                            report_data=report_data,
                            in_charge_data=in_charge_data,
                            hod_summary=hod_summary,
+                           dept_stats=dept_stats,
                            today_date=today.strftime('%d %b, %Y'))
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -221,6 +272,8 @@ def login():
                 
                 if user.role in ['admin', 'teacher', 'hod', 'in_charge']:
                     return redirect(url_for('dashboard'))
+                elif user.role == 'security':
+                    return redirect(url_for('security_portal'))
                 return redirect(url_for('student_dashboard'))
             else:
                 flash('Invalid username or password', 'danger')
@@ -277,7 +330,8 @@ def classes():
         flash(f'Class {name} added!', 'success')
         return redirect(url_for('classes'))
     all_classes = Classroom.query.all()
-    return render_template('classes.html', classes=all_classes)
+    departments = Department.query.all()
+    return render_template('classes.html', classes=all_classes, departments=departments)
 
 @app.route('/delete_class/<id>')
 
@@ -490,8 +544,9 @@ def students():
     
     all_students = Student.query.all()
     all_classes = Classroom.query.all()
+    all_depts = Department.query.all()
     class_map = {str(c.id): c.name for c in all_classes}
-    return render_template('students.html', students=all_students, classes=all_classes, class_map=class_map)
+    return render_template('students.html', students=all_students, classes=all_classes, class_map=class_map, departments=all_depts)
 
 @app.route('/delete_student/<id>')
 
@@ -774,11 +829,8 @@ def subjects():
     
     all_subjects = query.all()
     all_teachers = User.query.filter_by(role='teacher').all()
-    departments = list(set([c.dept for c in Classroom.query.all()]))
+    departments = Department.query.all()
 
-    if not departments:
-        departments = ['Computer Science', 'Electronics', 'Mechanical', 'Civil']
-        
     return render_template('subjects.html', subjects=all_subjects, teachers=all_teachers, 
                           selected_semester=selected_semester, departments=departments)
 
@@ -877,7 +929,7 @@ def attendance():
         count = 0
         
         # Valid status options
-        VALID_STATUSES = ['Present', 'Absent']
+        VALID_STATUSES = ['Present', 'Absent', 'OD', 'ML', 'Late']
         
         for student in students:
             status = request.form.get(f'status_{student.id}')
@@ -1027,7 +1079,7 @@ def reports():
             all_classes = [c for c in all_classes_objs if str(getattr(c, 'id', '')) in assigned_ids]
             
     all_teachers = User.query.filter_by(role='teacher').all()
-    departments = list(set([c.dept for c in all_classes_objs]))
+    departments = [d.name for d in Department.query.all()]
 
     # Optimization: Perform total aggregation in a single query instead of O(N) queries
     # Fetch all relevant attendance records for the students being displayed
@@ -1041,18 +1093,56 @@ def reports():
         sid = getattr(rec, 'student_id', None)
         if not sid: continue
         if sid not in attendance_map:
-            attendance_map[sid] = {'total': 0, 'present': 0}
-        attendance_map[sid]['total'] += 1
-        if getattr(rec, 'status', '') == 'Present':
-            attendance_map[sid]['present'] += 1
+            attendance_map[sid] = {'total': 0, 'present': 0, 'absent': 0, 'od': 0, 'ml': 0, 'late': 0, 'session_lates': 0}
+        
+        status = getattr(rec, 'status', '')
+        subj_id = getattr(rec, 'subject_id', '')
+        
+        if subj_id != 'GLOBAL':
+            attendance_map[sid]['total'] += 1
+            if status == 'Present':
+                attendance_map[sid]['present'] += 1
+            elif status == 'Absent':
+                attendance_map[sid]['absent'] += 1
+            elif status == 'OD':
+                attendance_map[sid]['od'] += 1
+            elif status == 'ML':
+                attendance_map[sid]['ml'] += 1
+            elif status == 'Late':
+                attendance_map[sid]['late'] += 1
+                attendance_map[sid]['session_lates'] += 1
+        else:
+            # GLOBAL record from security
+            if status == 'Late':
+                attendance_map[sid]['late'] += 1
 
     report_data = []
     for s in students:
-        stats = attendance_map.get(s.id, {'total': 0, 'present': 0})
+        stats = attendance_map.get(s.id, {'total': 0, 'present': 0, 'absent': 0, 'od': 0, 'ml': 0, 'late': 0, 'session_lates': 0})
         t = stats['total']
         p = stats['present']
-        perc = round((p / t * 100), 2) if t > 0 else 0.0
-        report_data.append({'student': s, 'total': t, 'present': p, 'percentage': perc})
+        od = stats['od']
+        ml = stats['ml']
+        late = stats['late']
+        session_lates = stats['session_lates']
+        
+        # 3 Lates = 1 Leave
+        # Logic: Penalty = Total Lates // 3
+        # Effective Presence = (p + od + ml + session_lates) - Penalty
+        penalty = late // 3
+        effective_present = max(0, (p + od + ml + session_lates) - penalty)
+        
+        perc = round((effective_present / t * 100), 2) if t > 0 else 0.0
+        report_data.append({
+            'student': s, 
+            'total': t, 
+            'present': effective_present, 
+            'percentage': perc,
+            'od': od,
+            'ml': ml,
+            'late': late,
+            'raw_present': p
+        })
 
     # Create mappings for manual relationship resolution in templates
     class_map = {str(c.id): c.name for c in all_classes_objs}
@@ -1152,16 +1242,19 @@ def student_dashboard():
     total_present_overall = 0
     
     for sub in subjects:
-        total, present, perc = student.get_attendance_stats(subject_id=sub.id)
+        total, effective_present, perc, od, ml, late = student.get_attendance_stats(subject_id=sub.id)
         subject_stats.append({
             'name': sub.name,
             'code': sub.code,
             'total': total,
-            'present': present,
-            'perc': perc
+            'present': effective_present,
+            'perc': perc,
+            'od': od,
+            'ml': ml,
+            'late': late
         })
         total_held_overall += total
-        total_present_overall += present
+        total_present_overall += effective_present
     
     overall_perc = (total_present_overall / total_held_overall * 100) if total_held_overall > 0 else 0
     absent_count_overall = total_held_overall - total_present_overall
@@ -1173,6 +1266,169 @@ def student_dashboard():
                            total_present=total_present_overall,
                            total_absent=absent_count_overall,
                            overall_perc=round(overall_perc, 2))
+
+@app.route('/calculator')
+@login_required
+def attendance_calculator():
+    if current_user.role == 'student':
+        student = Student.query.get(current_user.student_id)
+        if not student:
+            flash('Student record not found.', 'danger')
+            return redirect(url_for('dashboard'))
+        
+        # Get overall stats
+        total, effective_present, perc, od, ml, late = student.get_attendance_stats()
+        
+        return render_template('calculator.html', 
+                               student=student, 
+                               total=total, 
+                               present=effective_present, 
+                               perc=perc)
+    else:
+        # For teachers/admins, show a selector or handle selected student
+        student_id = request.args.get('student_id')
+        student = None
+        stats = None
+        if student_id:
+            student = Student.query.get(student_id)
+            if student:
+                stats = student.get_attendance_stats()
+        
+        all_students = Student.query.all()
+        return render_template('calculator.html', 
+                               all_students=all_students, 
+                               selected_student=student,
+                               stats=stats)
+
+# -- Department Management (Admin Only) --
+@app.route('/departments', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def departments():
+    if request.method == 'POST':
+        name = request.form.get('name')
+        code = request.form.get('code')
+        
+        existing_dept = Department.query.filter_by(name=name).first()
+        if existing_dept:
+            flash('Department already exists!', 'danger')
+        else:
+            new_dept = Department(name=name, code=code)
+            new_dept.save()
+            flash(f'Department {name} added successfully!', 'success')
+        return redirect(url_for('departments'))
+    
+    all_depts = Department.query.all()
+    return render_template('departments.html', departments=all_depts)
+
+@app.route('/delete_department/<id>')
+@login_required
+@admin_required
+def delete_department(id):
+    dept = Department.query.get_or_404(id)
+    if dept:
+        dept.delete()
+        flash('Department deleted!', 'info')
+    return redirect(url_for('departments'))
+
+@app.route('/edit_department/<id>', methods=['POST'])
+@login_required
+@admin_required
+def edit_department(id):
+    try:
+        dept = Department.query.get_or_404(id)
+        dept.update(
+            name=request.form.get('name'),
+            code=request.form.get('code')
+        )
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'status': 'success', 'message': 'Department updated!'})
+        flash('Department updated!', 'success')
+    except Exception as e:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'status': 'error', 'message': str(e)}), 500
+        flash(f'Error updating department: {str(e)}', 'danger')
+    return redirect(url_for('departments'))
+
+# --- Security Management (Admin Only) ---
+@app.route('/manage_security', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def manage_security():
+    if request.method == 'POST':
+        name = request.form.get('name')
+        email = request.form.get('email')
+        password = request.form.get('password')
+        
+        existing_user = User.query.filter_by(email=email).first()
+        if existing_user:
+            flash('Email already exists!', 'danger')
+        else:
+            phone = request.form.get('phone')
+            hashed_pw = generate_password_hash(password, method='pbkdf2:sha256')
+            new_security = User(name=name, email=email, username=email, password=hashed_pw, role='security', phone=phone)
+            new_security.save()
+            flash(f'Security Personal {name} added successfully!', 'success')
+        return redirect(url_for('manage_security'))
+    
+    all_security = User.query.filter_by(role='security').all()
+    return render_template('manage_security.html', security_users=all_security)
+
+@app.route('/delete_security/<id>')
+@login_required
+@admin_required
+def delete_security(id):
+    user = User.query.get_or_404(id)
+    if user and user.role == 'security':
+        user.delete()
+        flash('Security user deleted!', 'info')
+    return redirect(url_for('manage_security'))
+
+# --- Security Portal (Security Only) ---
+@app.route('/security_portal', methods=['GET', 'POST'])
+@login_required
+@security_required
+def security_portal():
+    search_query = request.args.get('search', '')
+    students = []
+    if search_query:
+        # Simple search across name or roll no
+        all_students = Student.query.all()
+        students = [s for s in all_students if search_query.lower() in s.name.lower() or search_query.lower() in s.roll_no.lower()]
+    
+    return render_template('security_portal.html', students=students, search_query=search_query)
+
+@app.route('/security_mark_late/<student_id>', methods=['POST'])
+@login_required
+@security_required
+def security_mark_late(student_id):
+    student = Student.query.get_or_404(student_id)
+    today = datetime.utcnow().date()
+    
+    # Logic: Mark 'Late' for the current date as a GLOBAL record (Subject Independent)
+    # Check if already marked for today
+    existing = Attendance.query.filter_by(
+        student_id=student.id, 
+        subject_id='GLOBAL', 
+        date=today.strftime('%Y-%m-%d')
+    ).first()
+    
+    if existing:
+        existing.status = 'Late'
+        existing.save()
+    else:
+        new_rec = Attendance(
+            student_id=student.id,
+            subject_id='GLOBAL',
+            class_id=student.class_id,
+            teacher_id=current_user.id,
+            date=today.strftime('%Y-%m-%d'),
+            status='Late'
+        )
+        new_rec.save()
+        
+    flash(f'Marked {student.name} as Late for today (Global Entry)!', 'success')
+    return redirect(url_for('security_portal', search=request.args.get('search', '')))
 
 if __name__ == '__main__':
     app.run(debug=True, port=5001)

@@ -262,6 +262,12 @@
                 </a>
             </div>
             <div class="nav-item">
+                <a href="{{ url_for('manage_security') }}"
+                    class="nav-link {% if request.endpoint == 'manage_security' %}active{% endif %}">
+                    <i class="bi bi-shield-lock"></i> Manage Security
+                </a>
+            </div>
+            <div class="nav-item">
                 <a href="{{ url_for('classes') }}"
                     class="nav-link {% if request.endpoint == 'classes' %}active{% endif %}">
                     <i class="bi bi-building"></i> Classes
@@ -274,6 +280,12 @@
                 </a>
             </div>
             <div class="nav-item">
+                <a href="{{ url_for('departments') }}"
+                    class="nav-link {% if request.endpoint == 'departments' %}active{% endif %}">
+                    <i class="bi bi-building-gear"></i> Departments
+                </a>
+            </div>
+            <div class="nav-item">
                 <a href="{{ url_for('attendance') }}"
                     class="nav-link {% if request.endpoint == 'attendance' %}active{% endif %}">
                     <i class="bi bi-calendar-check"></i> Mark Attendance
@@ -283,6 +295,12 @@
                 <a href="{{ url_for('reports') }}"
                     class="nav-link {% if request.endpoint == 'reports' %}active{% endif %}">
                     <i class="bi bi-file-earmark-text"></i> Reports
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ url_for('attendance_calculator') }}"
+                    class="nav-link {% if request.endpoint == 'attendance_calculator' %}active{% endif %}">
+                    <i class="bi bi-calculator"></i> Calculator
                 </a>
             </div>
 
@@ -306,6 +324,21 @@
                     <i class="bi bi-file-earmark-text"></i> Reports
                 </a>
             </div>
+            <div class="nav-item">
+                <a href="{{ url_for('attendance_calculator') }}"
+                    class="nav-link {% if request.endpoint == 'attendance_calculator' %}active{% endif %}">
+                    <i class="bi bi-calculator"></i> Calculator
+                </a>
+            </div>
+
+            {% elif current_user.role == 'security' %}
+            <!-- Security Links -->
+            <div class="nav-item">
+                <a href="{{ url_for('security_portal') }}"
+                    class="nav-link {% if request.endpoint == 'security_portal' %}active{% endif %}">
+                    <i class="bi bi-shield-lock"></i> Security Portal
+                </a>
+            </div>
 
             {% else %}
             <!-- Student Links -->
@@ -313,6 +346,12 @@
                 <a href="{{ url_for('student_dashboard') }}"
                     class="nav-link {% if request.endpoint == 'student_dashboard' %}active{% endif %}">
                     <i class="bi bi-speedometer2"></i> My Dashboard
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ url_for('attendance_calculator') }}"
+                    class="nav-link {% if request.endpoint == 'attendance_calculator' %}active{% endif %}">
+                    <i class="bi bi-calculator"></i> Calculator
                 </a>
             </div>
             {% endif %}

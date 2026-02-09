@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+
+{% block title %}Attendance Calculator - EduGate{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-12">
+        <h2 class="fw-bold"><i class="bi bi-calculator-fill me-2 text-primary"></i>Attendance Calculator</h2>
+        <p class="text-muted">Plan your attendance and see projected percentages.</p>
+    </div>
+</div>
+
+{% if current_user.role != 'student' %}
+<!-- Teacher/Admin View: Select Student -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body">
+        <form method="GET" action="{{ url_for('attendance_calculator') }}" class="row g-3 align-items-end">
+            <div class="col-md-9">
+                <label class="form-label small fw-bold text-muted text-uppercase">Select Student</label>
+                <select name="student_id" class="form-select bg-light border-0 select2">
+                    <option value="">-- Choose Student --</option>
+                    {% for s in all_students %}
+                    <option value="{{ s.id }}" {% if selected_student and selected_student.id == s.id %}selected{% endif %}>
+                        {{ s.name }} ({{ s.roll_no }})
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-primary w-100">Load Stats</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{% if student or selected_student %}
+{% set s = student or selected_student %}
+{% set t_stats = stats if stats else (total, present, perc) %}
+<div class="row g-4">
+    <!-- Current Stats Column -->
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white py-3">
+                <h5 class="mb-0 fw-bold text-primary">Current Statistics</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-4 text-center">
+                    <div class="display-4 fw-bold {% if t_stats[2] < 75 %}text-danger{% else %}text-success{% endif %}">
+                        {{ t_stats[2] }}%
+                    </div>
+                    <p class="text-muted small text-uppercase fw-bold">Current Percentage</p>
+                </div>
+                
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                        <span>Total Classes Held</span>
+                        <span class="fw-bold">{{ t_stats[0] }}</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                        <span>Effective Attendance</span>
+                        <span class="fw-bold text-success">{{ t_stats[1] }}</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                        <span>OD / ML Count</span>
+                        <span class="fw-bold text-info">{{ t_stats[3] + t_stats[4] }}</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                        <span>Late Count</span>
+                        <span class="fw-bold text-secondary">{{ t_stats[5] }}</span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Calculator Column -->
+    <div class="col-lg-8">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white py-3">
+                <h5 class="mb-0 fw-bold text-primary">Prediction Tool</h5>
+            </div>
+            <div class="card-body p-4">
+                <div class="row g-4 mb-4">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Future Classes</label>
+                        <input type="number" id="future_total" class="form-control form-control-lg bg-light border-0" placeholder="0" min="0">
+                        <small class="text-muted">Number of expected upcoming classes.</small>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Classes to Attend</label>
+                        <input type="number" id="future_present" class="form-control form-control-lg bg-light border-0" placeholder="0" min="0">
+                        <small class="text-muted">How many of these will you attend?</small>
+                    </div>
+                </div>
+
+                <div class="alert alert-info border-0 shadow-sm p-4 text-center mb-0">
+                    <h6 class="text-uppercase small fw-bold mb-3">Projected Attendance</h6>
+                    <div class="display-5 fw-bold text-primary" id="projected_perc">
+                        {{ t_stats[2] }}%
+                    </div>
+                    <p class="mt-2 mb-0" id="projection_label">Current efficiency</p>
+                </div>
+                
+                <hr class="my-4">
+                
+                <h6 class="fw-bold mb-3">Goal Seek</h6>
+                <div class="row g-3 align-items-center">
+                    <div class="col-auto">
+                        <span>I want to reach </span>
+                    </div>
+                    <div class="col-md-2">
+                        <input type="number" id="target_perc" class="form-control bg-light border-0" value="75" min="1" max="100">
+                    </div>
+                    <div class="col-auto">
+                        <span>% attendance.</span>
+                    </div>
+                </div>
+                <div id="goal_result" class="mt-3 fw-bold text-success"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="text-center py-5">
+    <i class="bi bi-people fs-1 text-muted d-block mb-3"></i>
+    <p class="text-muted">Please select a student to start calculations.</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        {% if t_stats %}
+        const currentTotal = {{ t_stats[0]|int }};
+        const currentPresent = {{ t_stats[1]|int }};
+        {% else %}
+        const currentTotal = 0;
+        const currentPresent = 0;
+        {% endif %}
+
+        const futureTotalVal = document.getElementById('future_total');
+        const futurePresentVal = document.getElementById('future_present');
+        const projectedPerc = document.getElementById('projected_perc');
+        const projectionLabel = document.getElementById('projection_label');
+        const targetPercVal = document.getElementById('target_perc');
+        const goalResult = document.getElementById('goal_result');
+
+        function updateProjection() {
+            const ft = parseInt(futureTotalVal.value) || 0;
+            const fp = parseInt(futurePresentVal.value) || 0;
+
+            if (fp > ft) {
+                futurePresentVal.value = ft;
+                return updateProjection();
+            }
+
+            const total = currentTotal + ft;
+            const present = currentPresent + fp;
+
+            if (total === 0) {
+                projectedPerc.innerText = "0.00%";
+                return;
+            }
+
+            const perc = (present / total * 100).toFixed(2);
+            projectedPerc.innerText = perc + "%";
+
+            if (perc < 75) {
+                projectedPerc.className = "display-5 fw-bold text-danger";
+                projectionLabel.innerText = "Below requirement";
+            } else if (perc < 85) {
+                projectedPerc.className = "display-5 fw-bold text-warning";
+                projectionLabel.innerText = "Meeting requirement";
+            } else {
+                projectedPerc.className = "display-5 fw-bold text-success";
+                projectionLabel.innerText = "Excellent attendance";
+            }
+
+            updateGoal();
+        }
+
+        function updateGoal() {
+            const target = parseFloat(targetPercVal.value) || 75;
+            if (target > 100) return;
+
+            const tDecimal = target / 100;
+
+            if (tDecimal >= 1) {
+                goalResult.innerText = "100% attendance is only possible if you attend all future classes and have had no absents yet.";
+                goalResult.className = "mt-3 fw-bold text-info";
+                return;
+            }
+
+            let required = (tDecimal * currentTotal - currentPresent) / (1 - tDecimal);
+            required = Math.ceil(required);
+
+            if (required <= 0) {
+                let skippable = Math.floor((currentPresent / tDecimal) - currentTotal);
+                if (skippable > 0) {
+                    goalResult.innerText = "You can skip the next " + skippable + " classes and still maintain " + target + "%.";
+                    goalResult.className = "mt-3 fw-bold text-success";
+                } else {
+                    goalResult.innerText = "You are currently at your target. Don't skip any more classes!";
+                    goalResult.className = "mt-3 fw-bold text-warning";
+                }
+            } else {
+                goalResult.innerText = "You need to attend the next " + required + " classes consecutively to reach " + target + "%.";
+                goalResult.className = "mt-3 fw-bold text-danger";
+            }
+        }
+
+        if (futureTotalVal) {
+            futureTotalVal.addEventListener('input', updateProjection);
+            futurePresentVal.addEventListener('input', updateProjection);
+            targetPercVal.addEventListener('input', updateGoal);
+            updateGoal();
+        }
+    });
+</script>
+{% endblock %}

@@ -96,9 +96,11 @@
                         <tr>
                             <th class="ps-4">Student</th>
                             <th>Roll No</th>
-                            <th>Class</th>
                             <th class="text-center">Total</th>
-                            <th class="text-center">Present</th>
+                            <th class="text-center">Pres</th>
+                            <th class="text-center">OD</th>
+                            <th class="text-center">ML</th>
+                            <th class="text-center">Late</th>
                             <th class="text-center">Percentage</th>
                         </tr>
                     </thead>
@@ -107,12 +109,15 @@
                         <tr>
                             <td class="ps-4">
                                 <span class="fw-semibold text-dark d-block">{{ item.student.name }}</span>
-                                <small class="text-muted text-uppercase">{{ item.student.dept }}</small>
+                                <small class="text-muted text-uppercase">{{ class_map.get(item.student.class_id|string,
+                                    'Unknown') }}</small>
                             </td>
                             <td><span class="badge bg-light text-dark border">{{ item.student.roll_no }}</span></td>
-                            <td>{{ class_map.get(item.student.class_id|string, 'Unknown') }}</td>
                             <td class="text-center fw-bold">{{ item.total }}</td>
-                            <td class="text-center text-success fw-bold">{{ item.present }}</td>
+                            <td class="text-center text-success fw-bold">{{ item.raw_present }}</td>
+                            <td class="text-center text-info fw-bold">{{ item.od }}</td>
+                            <td class="text-center text-warning fw-bold">{{ item.ml }}</td>
+                            <td class="text-center text-secondary fw-bold">{{ item.late }}</td>
                             <td class="text-center">
                                 <div class="d-flex align-items-center justify-content-center gap-2">
                                     <div class="progress flex-grow-1" style="height: 6px; width: 60px;">
@@ -146,7 +151,7 @@
                 <div class="list-group list-group-flush">
                     {% for record in recent_attendance %}
                     <div
-                        class="list-group-item p-3 border-start border-4 {% if record.status == 'Present' %}border-success{% else %}border-danger{% endif %}">
+                        class="list-group-item p-3 border-start border-4 {% if record.status == 'Present' %}border-success{% elif record.status == 'OD' %}border-info{% elif record.status == 'ML' %}border-warning{% elif record.status == 'Late' %}border-secondary{% else %}border-danger{% endif %}">
                         <div class="d-flex justify-content-between align-items-start mb-1">
                             <span class="fw-bold text-dark">{{ student_map.get(record.student_id|string, 'Unknown
                                 Student') }}</span>
@@ -158,7 +163,7 @@
                         </div>
                         <div class="d-flex justify-content-between align-items-center">
                             <span
-                                class="badge {% if record.status == 'Present' %}bg-success{% else %}bg-danger{% endif %} px-2 py-1">
+                                class="badge {% if record.status == 'Present' %}bg-success{% elif record.status == 'OD' %}bg-info{% elif record.status == 'ML' %}bg-warning{% elif record.status == 'Late' %}bg-secondary{% else %}bg-danger{% endif %} px-2 py-1">
                                 {{ record.status }}
                             </span>
                             <small class="text-muted"><i class="bi bi-person me-1"></i>Marked by: {{
