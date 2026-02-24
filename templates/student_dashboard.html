@@ -59,14 +59,13 @@
                 <div class="col-md-4">
                     <div class="card bg-white h-100 p-4 border-start border-4 border-info">
                         <h6 class="text-uppercase mb-2 text-muted small fw-bold">OD / ML</h6>
-                        <h2 class="fw-bold mb-0 text-info">{{ student.get_attendance_stats()[3] +
-                            student.get_attendance_stats()[4] }}</h2>
+                        <h2 class="fw-bold mb-0 text-info">{{ total_od + total_ml }}</h2>
                     </div>
                 </div>
                 <div class="col-md-4">
                     <div class="card bg-white h-100 p-4 border-start border-4 border-secondary">
                         <h6 class="text-uppercase mb-2 text-muted small fw-bold">Lates</h6>
-                        <h2 class="fw-bold mb-0 text-secondary">{{ student.get_attendance_stats()[5] }}</h2>
+                        <h2 class="fw-bold mb-0 text-secondary">{{ total_late }}</h2>
                     </div>
                 </div>
                 <div class="col-md-4">
@@ -142,9 +141,9 @@
                         data: [
                             {{ total_present }},
                     {{ total_absent }},
-                            {{ student.get_attendance_stats()[3] }},
-            {{ student.get_attendance_stats()[4] }},
-            {{ student.get_attendance_stats()[5] }}
+                            {{ total_od }},
+            {{ total_ml }},
+            {{ total_late }}
                         ],
             backgroundColor: [
             '#2ecc71', // Green for Present

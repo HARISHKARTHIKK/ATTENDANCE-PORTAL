@@ -457,15 +457,27 @@ def get_all_classes():
     return jsonify([{'id': c.id, 'name': c.name, 'dept': c.dept} for c in classes])
 
 @app.route('/api/get_subjects_by_semester/<semester_id>/<dept>')
-
 @login_required
 def get_subjects_by_semester(semester_id, dept):
-    subjects = Subject.query.filter_by(semester=semester_id, dept=dept).all()
+    # Fetch all subjects for this semester (trying both string and int)
+    subjects_for_sem = Subject.query.filter_by(semester=semester_id).all()
+    if not subjects_for_sem:
+        try:
+            subjects_for_sem = Subject.query.filter_by(semester=int(semester_id)).all()
+        except (ValueError, TypeError):
+            subjects_for_sem = []
+    
+    # Filter by department in Python (case-insensitive and stripped)
+    filtered = [
+        s for s in subjects_for_sem 
+        if str(getattr(s, 'dept', '')).lower().strip() == dept.lower().strip()
+    ]
+            
     return jsonify([{
         'id': s.id,
         'name': s.name,
         'code': s.code
-    } for s in subjects])
+    } for s in filtered])
 
 @app.route('/delete_teacher/<id>')
 
@@ -1287,36 +1299,66 @@ def student_dashboard():
         
     # Optimized: Fetch all attendance records once to avoid N queries
     all_attendance = Attendance.query.filter_by(student_id=student.id).all()
-    subjects = Subject.query.all()
-    
+    # Filter subjects for current semester and department (Robust check)
+    subjects_all = Subject.query.filter_by(semester=str(student.semester)).all()
+    if not subjects_all:
+        try:
+            subjects_all = Subject.query.filter_by(semester=int(student.semester)).all()
+        except:
+            subjects_all = []
+            
+    subjects = [
+        s for s in subjects_all 
+        if str(getattr(s, 'dept', '')).lower().strip() == student.dept.lower().strip()
+    ]
+        
     subject_stats = []
     total_held_overall = 0
     total_present_overall = 0
+    total_od_overall = 0
+    total_ml_overall = 0
+    total_late_overall = 0
+    
+    # Pre-calculate global stats for the current student
+    global_records = [r for r in all_attendance if getattr(r, 'subject_id', '') == 'GLOBAL']
     
     for sub in subjects:
-        # Filter and calculate stats in-memory
+        # Filter and calculate stats in-memory for this specific subject
         subj_records = [r for r in all_attendance if getattr(r, 'subject_id', '') == sub.id]
-        global_records = [r for r in all_attendance if getattr(r, 'subject_id', '') == 'GLOBAL']
-        
-        # Consistent with get_attendance_stats logic
-        session_records = [r for r in subj_records if getattr(r, 'subject_id', '') != 'GLOBAL']
-        total = len(session_records)
+        total = len(subj_records)
         
         if total == 0:
             p, od, ml, late, perc = 0, 0, 0, 0, 0.0
         else:
-            p_raw = len([r for r in session_records if getattr(r, 'status', '') == 'Present'])
-            od = len([r for r in session_records if getattr(r, 'status', '') == 'OD']) + \
-                 len([r for r in global_records if getattr(r, 'status', '') == 'OD'])
-            ml = len([r for r in session_records if getattr(r, 'status', '') == 'ML']) + \
-                 len([r for r in global_records if getattr(r, 'status', '') == 'ML'])
-            late = len([r for r in subj_records if getattr(r, 'status', '') == 'Late']) + \
-                   len([r for r in global_records if getattr(r, 'status', '') == 'Late'])
+            p_raw = len([r for r in subj_records if getattr(r, 'status', '') == 'Present'])
             
-            s_lates = len([r for r in session_records if getattr(r, 'status', '') == 'Late'])
-            eff_p = max(0, (p_raw + od + ml + s_lates) - (late // 3))
+            # OD and ML can be from specific sessions or marked globally
+            # For simplicity, we count global OD/ML once for the student, 
+            # but per-subject we look at the subject-specific ones.
+            # Actually, per-subject percentage logic usually includes global OD/ML as "Present".
+            
+            od_subj = len([r for r in subj_records if getattr(r, 'status', '') == 'OD'])
+            ml_subj = len([r for r in subj_records if getattr(r, 'status', '') == 'ML'])
+            
+            # Global status counts (filtered by date if needed, but here we assume all records for the student)
+            # To avoid overcounting in "overall" stats, we'll handle global stats separately outside the loop.
+            od_global = len([r for r in global_records if getattr(r, 'status', '') == 'OD'])
+            ml_global = len([r for r in global_records if getattr(r, 'status', '') == 'ML'])
+            
+            late_subj = len([r for r in subj_records if getattr(r, 'status', '') == 'Late'])
+            late_global = len([r for r in global_records if getattr(r, 'status', '') == 'Late'])
+            
+            # effective_presence = (Present + OD + ML + Session_Lates) - (Total_Lates // 3)
+            # Percentage for a subject:
+            total_late_for_penalty = late_subj + late_global
+            eff_p = max(0, (p_raw + od_subj + od_global + ml_subj + ml_global + late_subj) - (total_late_for_penalty // 3))
+            
             perc = round((eff_p / total * 100), 2)
             p = eff_p
+            # For the table stats
+            od = od_subj + od_global
+            ml = ml_subj + ml_global
+            late = total_late_for_penalty
 
         subject_stats.append({
             'name': sub.name,
@@ -1330,9 +1372,14 @@ def student_dashboard():
         })
         total_held_overall += total
         total_present_overall += p
+
+    # Calculate overall OD, ML, and Lates consistently
+    total_od_overall = len([r for r in all_attendance if getattr(r, 'status', '') == 'OD'])
+    total_ml_overall = len([r for r in all_attendance if getattr(r, 'status', '') == 'ML'])
+    total_late_overall = len([r for r in all_attendance if getattr(r, 'status', '') == 'Late'])
     
     overall_perc = (total_present_overall / total_held_overall * 100) if total_held_overall > 0 else 0
-    absent_count_overall = total_held_overall - total_present_overall
+    absent_count_overall = max(0, total_held_overall - total_present_overall)
     
     return render_template('student_dashboard.html', 
                            student=student,
@@ -1340,8 +1387,11 @@ def student_dashboard():
                            total_held=total_held_overall,
                            total_present=total_present_overall,
                            total_absent=absent_count_overall,
+                           total_od=total_od_overall,
+                           total_ml=total_ml_overall,
+                           total_late=total_late_overall,
                            overall_perc=round(overall_perc, 2))
-
+    
 @app.route('/calculator')
 @login_required
 def attendance_calculator():
@@ -1351,8 +1401,42 @@ def attendance_calculator():
             flash('Student record not found.', 'danger')
             return redirect(url_for('dashboard'))
         
-        # Get overall stats
-        stats = student.get_attendance_stats()
+        # Get subjects for the current semester and department (Robust check)
+        subjects_all = Subject.query.filter_by(semester=str(student.semester)).all()
+        if not subjects_all:
+            try:
+                subjects_all = Subject.query.filter_by(semester=int(student.semester)).all()
+            except:
+                subjects_all = []
+                
+        subjects = [
+            s for s in subjects_all 
+            if str(getattr(s, 'dept', '')).lower().strip() == student.dept.lower().strip()
+        ]
+            
+        # Calculate overall stats based ONLY on these subjects
+        all_attendance = Attendance.query.filter_by(student_id=student.id).all()
+        subj_ids = {s.id for s in subjects}
+        
+        relevant_records = [r for r in all_attendance if getattr(r, 'subject_id', '') in subj_ids]
+        global_records = [r for r in all_attendance if getattr(r, 'subject_id', '') == 'GLOBAL']
+        
+        total = len(relevant_records)
+        if total == 0:
+            stats = (0, 0, 0.0, 0, 0, 0)
+        else:
+            present_raw = len([r for r in relevant_records if getattr(r, 'status', '') == 'Present'])
+            od = len([r for r in relevant_records if getattr(r, 'status', '') == 'OD']) + \
+                 len([r for r in global_records if getattr(r, 'status', '') == 'OD'])
+            ml = len([r for r in relevant_records if getattr(r, 'status', '') == 'ML']) + \
+                 len([r for r in global_records if getattr(r, 'status', '') == 'ML'])
+            late = len([r for r in relevant_records if getattr(r, 'status', '') == 'Late']) + \
+                   len([r for r in global_records if getattr(r, 'status', '') == 'Late'])
+            
+            s_lates = len([r for r in relevant_records if getattr(r, 'status', '') == 'Late'])
+            eff_p = max(0, (present_raw + od + ml + s_lates) - (late // 3))
+            perc = round((eff_p / total * 100), 2)
+            stats = (total, eff_p, perc, od, ml, late)
         
         return render_template('calculator.html', 
                                student=student, 
@@ -1365,12 +1449,13 @@ def attendance_calculator():
         if student_id:
             student = Student.query.get(student_id)
             if student:
+                # Teachers still see cumulative stats for simplicity, or we could filter here too
                 stats = student.get_attendance_stats()
         
         all_students = Student.query.all()
         # Sort students by roll no for better selector usability
         all_students.sort(key=lambda x: x.roll_no.lower())
-        
+            
         return render_template('calculator.html', 
                                all_students=all_students, 
                                selected_student=student,
