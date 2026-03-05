@@ -312,7 +312,7 @@ def login():
                 session['user_id'] = user.id
                 session.permanent = True
                 
-                flash(f"Welcome back, {getattr(user, 'name', user.username)}!", 'success')
+                flash(f"Welcome back, {user.username}!", 'success')
                 
                 if user.role in ['admin', 'teacher', 'hod', 'in_charge']:
                     return redirect(url_for('dashboard'))
