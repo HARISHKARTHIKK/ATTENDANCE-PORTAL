@@ -312,7 +312,7 @@ def login():
                 session['user_id'] = user.id
                 session.permanent = True
                 
-                flash(f'Welcome back, {user.name}!', 'success')
+                flash(f"Welcome back, {getattr(user, 'name', user.username)}!", 'success')
                 
                 if user.role in ['admin', 'teacher', 'hod', 'in_charge']:
                     return redirect(url_for('dashboard'))
@@ -596,7 +596,7 @@ def students():
         
         # Create User Login for Student
         default_pw = generate_password_hash('student123', method='pbkdf2:sha256')
-        new_user = User(username=roll_no, password=default_pw, role='student', student_id=new_student.id, phone=phone)
+        new_user = User(name=name, username=roll_no, password=default_pw, role='student', student_id=new_student.id, phone=phone)
         new_user.save()
 
         flash(f'Student {name} added! Login: {roll_no} / student123', 'success')
@@ -808,10 +808,9 @@ def bulk_upload_students():
                         user_ref = db_conn.collection(User.__collection__).document()
                         default_pw = generate_password_hash('student123', method='pbkdf2:sha256')
                         new_user = User(
-                            id=user_ref.id,
-                            name=name, 
-                            email=email if email else None, 
+                            name=name,
                             username=roll_no, 
+                            email=email if email else None,
                             password=default_pw, 
                             role='student', 
                             student_id=new_student.id, 

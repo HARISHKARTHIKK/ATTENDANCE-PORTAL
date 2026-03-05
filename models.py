@@ -217,6 +217,9 @@ class User(UserMixin, FirestoreModel):
         super().__init__(**kwargs)
         if not hasattr(self, 'role'): self.role = 'teacher'
         if not hasattr(self, 'assigned_classes'): self.assigned_classes = []
+        if not hasattr(self, 'name'):
+            # Default name to username if name is missing
+            self.name = getattr(self, 'username', 'User')
 
     def get_id(self): return str(self.id)
 
