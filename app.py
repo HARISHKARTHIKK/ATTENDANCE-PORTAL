@@ -132,63 +132,89 @@ def dashboard():
     if current_user.role == 'student':
         return redirect(url_for('student_dashboard'))
     
-    total_students = Student.query.count()
-    total_subjects = Subject.query.count()
-    total_classes = Classroom.query.count()
-    # Use where() for 'in' queries as per requirement
-    total_teachers = User.query.where('role', 'in', ['teacher', 'in_charge', 'hod']).count()
+    # Cache expensive counts
+    if 'global_counts' not in _cache or (datetime.now().timestamp() - _cache['global_counts']['time']) > CACHE_TIMEOUT:
+        _cache['global_counts'] = {
+            'data': {
+                'students': Student.query.count(),
+                'subjects': Subject.query.count(),
+                'classes': Classroom.query.count(),
+                'teachers': User.query.where('role', 'in', ['teacher', 'in_charge', 'hod']).count()
+            },
+            'time': datetime.now().timestamp()
+        }
     
-    # Optimized: Fetch 10 students and their attendance records in a single batch
+    counts = _cache['global_counts']['data']
+    total_students = counts['students']
+    total_subjects = counts['subjects']
+    total_classes = counts['classes']
+    total_teachers = counts['teachers']
+
+    
+    # Reverted to original logic to prevent Firestore index query freezes on localhost
     top_students = Student.query.limit(10).all()
     report_data = []
-    
-    if top_students:
-        student_ids = [s.id for s in top_students]
-        # Fetch all attendance for these 10 students at once
-        # Using Firestore 'in' query (limit 30)
-        all_top_atts = Attendance.query.where('student_id', 'in', student_ids).all()
-        
-        for s in top_students:
-            # Filter in-memory for this student
-            s_atts = [r for r in all_top_atts if getattr(r, 'student_id', '') == s.id]
-            # Manual calculation of stats to avoid another trip to DB
-            sess_atts = [r for r in s_atts if getattr(r, 'subject_id', '') != 'GLOBAL']
-            p = len([r for r in sess_atts if getattr(r, 'status', '') == 'Present'])
-            total = len(sess_atts)
-            perc = round((p / total * 100), 2) if total > 0 else 0.0
-            
-            report_data.append({
-                'name': s.name,
-                'roll_no': s.roll_no,
-                'dept': s.dept,
-                'perc': perc
-            })
+    for s in top_students:
+        stats = s.get_attendance_stats()
+        report_data.append({
+            'name': getattr(s, 'name', ''),
+            'roll_no': getattr(s, 'roll_no', ''),
+            'dept': getattr(s, 'dept', ''),
+            'perc': stats[2]
+        })
+
     
     today = datetime.utcnow().date()
     today_dt = datetime.combine(today, datetime.min.time())
     in_charge_data = None
     hod_summary = []
 
-    batch_size = 30
-    batches = [today_student_ids[i:i+batch_size] for i in range(0, len(today_student_ids), batch_size)]
-    for batch in batches:
-        students_batch = Student.query.where('id', 'in', batch).all()
-        for s in students_batch:
-            attendee_dept_map[str(s.id)] = str(getattr(s, 'dept', 'Unknown')).lower().strip()
+    # Optimization: Fetch today's records once
+    attendance_today = Attendance.query.filter_by(date=today_dt).all()
+    stats_map = {}
+    today_student_ids = []
+    
+    for rec in attendance_today:
+        sid = getattr(rec, 'student_id', None)
+        if sid: today_student_ids.append(sid)
+        
+        cid = getattr(rec, 'class_id', None)
+        if not cid: continue
+        if cid not in stats_map:
+            stats_map[cid] = {'present': 0, 'absent': 0, 'od': 0, 'ml': 0, 'late': 0}
+        
+        status = getattr(rec, 'status', '')
+        if status == 'Present':
+            stats_map[cid]['present'] += 1
+        elif status == 'Absent':
+            stats_map[cid]['absent'] += 1
+        elif status == 'OD':
+            stats_map[cid]['od'] += 1
+        elif status == 'ML':
+            stats_map[cid]['ml'] += 1
+        elif status == 'Late':
+            stats_map[cid]['late'] += 1
+
+    # Pre-resolve student departments for dept stats
+    today_student_ids = list(set(today_student_ids))
+    attendee_dept_map = {}
+    if today_student_ids:
+        all_s = Student.query.all()
+        for sid in today_student_ids:
+            for s in all_s:
+                if str(s.id) == str(sid):
+                    attendee_dept_map[str(sid)] = str(getattr(s, 'dept', 'Unknown'))
+                    break
+
 
     if current_user.role == 'in_charge':
         assigned_ids = [str(x) for x in current_user.assigned_classes if x is not None]
         cls = None
         if assigned_ids:
-            if len(assigned_ids) == 1:
-                cls = Classroom.query.where('id', '==', assigned_ids[0]).first()
-            elif len(assigned_ids) <= 10:
-                cls = Classroom.query.where('id', 'in', assigned_ids).first()
-            else:
-                # > 10: we just need one, but for consistency let's fetch all (usually small)
-                all_c = Classroom.query.all()
-                matches = [c for c in all_c if str(getattr(c, 'id', '')) in assigned_ids]
-                cls = matches[0] if matches else None
+            all_c = get_cached_metadata('classrooms', Classroom)
+            matches = [c for c in all_c if str(getattr(c, 'id', '')) in assigned_ids]
+            cls = matches[0] if matches else None
+
             
         if cls:
             stats = stats_map.get(cls.id, {'present': 0, 'absent': 0})
@@ -199,15 +225,12 @@ def dashboard():
             assigned_ids = [str(x) for x in current_user.assigned_classes if x is not None]
             if not assigned_ids:
                 classes_to_show = []
-            elif len(assigned_ids) == 1:
-                classes_to_show = Classroom.query.where('id', '==', assigned_ids[0]).all()
-            elif len(assigned_ids) <= 10:
-                classes_to_show = Classroom.query.where('id', 'in', assigned_ids).all()
             else:
-                all_c = Classroom.query.all()
+                all_c = get_cached_metadata('classrooms', Classroom)
                 classes_to_show = [c for c in all_c if str(getattr(c, 'id', '')) in assigned_ids]
         else:
-            classes_to_show = Classroom.query.all()
+            classes_to_show = get_cached_metadata('classrooms', Classroom)
+
 
         for cls in classes_to_show:
             stats = stats_map.get(cls.id, {'present': 0, 'absent': 0})
@@ -220,65 +243,26 @@ def dashboard():
     # Department Wise stats
     all_departments = Department.query.all()
     dept_stats = []
-    
+
+    # Cache department student counts to avoid N sequential queries
+    if 'dept_counts' not in _cache or (datetime.now().timestamp() - _cache['dept_counts']['time']) > CACHE_TIMEOUT:
+        dept_counts = {}
+        for d in all_departments:
+            dept_counts[d.name] = Student.query.filter_by(dept=d.name).count()
+        _cache['dept_counts'] = {'data': dept_counts, 'time': datetime.now().timestamp()}
+        
     for d in all_departments:
-        # Optimized: Count department students without fetching them
-        total_dept_students = Student.query.filter_by(dept=d.name).count()
-        
-        present_today = 0
-        absent_today = 0
-        late_today = 0
-        
-        # We still have today's attendance records in attendance_today.
-        # We can optimize by checking if the record's student belongs to the dept.
-        # This requires student data, but we can cache it for the current list of records.
-        # To avoid N queries, let's fetch only students involved in today's attendance.
-        relevant_student_ids = list(set([getattr(r, 'student_id', None) for r in attendance_today if getattr(r, 'student_id', None)]))
-        
-        # Mapping student ID -> Dept for fast lookup
-        # Only fetch students involved in today's records
-        if relevant_student_ids:
-            # Firestore 'in' query limited to 30 items per query usually, 
-            # but for simplicity let's assume we can fetch them or skip if too many.
-            # actually Attendance records have dept? no they don't.
-            # let's just fetch the dept for d.name explicitly if total_students in records is too high.
-            # but wait, we already have attendance_today. Let's filter records by dept via Student lookup.
-            pass
+        total_dept_students = _cache['dept_counts']['data'].get(d.name, 0)
 
-        for rec in attendance_today:
-            sid = getattr(rec, 'student_id', None)
-            if sid:
-                # We need to know if sid is in dept d.name. 
-                # Doing a get() per record is still slow. 
-                # Let's optimize: pre-fetch student dept mapping for all today's attendees.
-                pass
-        
-        # Actually, let's just use the previous logic but fetch the necessary students efficiently.
-        # For now, let's assume the previous logic was using the full student list.
-        # Since we removed that, we can just fetch the IDs once.
-        pass
-
-    # RE-IMPLEMENTING DEPT STATS OPTIMALLY
-    today_student_ids = [getattr(r, 'student_id', None) for r in attendance_today if getattr(r, 'student_id', None)]
-    attendee_dept_map = {}
-    if today_student_ids:
-        # Fetching students in batches of 30 (Firestore limit for 'in')
-        for i in range(0, len(today_student_ids), 30):
-            batch = today_student_ids[i:i+30]
-            students_batch = Student.query.where('id', 'in', batch).all()
-            for s in students_batch:
-                attendee_dept_map[s.id] = s.dept
-
-    for d in all_departments:
-        total_dept_students = Student.query.filter_by(dept=d.name).count()
         
         present_today = 0
         absent_today = 0
         late_today = 0
         
         for rec in attendance_today:
-            sid = getattr(rec, 'student_id', None)
-            if sid and attendee_dept_map.get(sid) == d.name:
+            sid = str(getattr(rec, 'student_id', ''))
+            s_dept = str(attendee_dept_map.get(sid, '')).lower().strip()
+            if sid and s_dept == str(d.name).lower().strip():
                 status = getattr(rec, 'status', '')
                 if status == 'Present':
                     present_today += 1
@@ -972,18 +956,13 @@ def attendance():
     if current_user.role == 'admin':
         all_classes = Classroom.query.all()
     else:
-        # Safe Firestore IN query logic
         assigned_ids = [str(x) for x in current_user.assigned_classes if x is not None]
         if not assigned_ids:
             all_classes = []
-        elif len(assigned_ids) == 1:
-            all_classes = Classroom.query.where('id', '==', assigned_ids[0]).all()
-        elif len(assigned_ids) <= 10:
-            all_classes = Classroom.query.where('id', 'in', assigned_ids).all()
         else:
-            # > 10: fetch and Python filter
-            all_c = Classroom.query.all()
+            all_c = get_cached_metadata('classrooms', Classroom)
             all_classes = [c for c in all_c if str(getattr(c, 'id', '')) in assigned_ids]
+
 
     if request.method == 'POST':
         subject_id = request.form.get('subject_id')
@@ -1160,12 +1139,9 @@ def reports():
         assigned_ids = [str(x) for x in current_user.assigned_classes if x is not None]
         if not assigned_ids:
             all_classes = []
-        elif len(assigned_ids) == 1:
-            all_classes = Classroom.query.where('id', '==', assigned_ids[0]).all()
-        elif len(assigned_ids) <= 10:
-            all_classes = Classroom.query.where('id', 'in', assigned_ids).all()
         else:
             all_classes = [c for c in all_classes_objs if str(getattr(c, 'id', '')) in assigned_ids]
+
             
     all_teachers = User.query.filter_by(role='teacher').all() 
     departments = [d.name for d in get_cached_metadata('departments', Department)]
@@ -1697,10 +1673,14 @@ def status_portal(status_type):
     class_filter = request.args.get('class_id', '')
     selected_date = request.args.get('date', datetime.utcnow().strftime('%Y-%m-%d'))
     
+    # Fetch already marked students for this date and status type
+    marked_records = Attendance.query.filter_by(date=selected_date, status=status_type).all()
+    marked_student_ids = [str(getattr(r, 'student_id', '')) for r in marked_records]
+    
     # Fetch all students and filter in Python for robustness (handling case/whitespace)
     students = []
     
-    # Show results if any filter is applied
+    # Show results if any filter is applied OR show already marked students by default
     if search_query or dept_filter or class_filter:
         # Optimization: If class_filter is present, only fetch students of that class
         if class_filter:
@@ -1724,9 +1704,14 @@ def status_portal(status_type):
                     continue
             
             students.append(s)
+    else:
+        # Default view: show already marked students
+        if marked_student_ids:
+            all_s = Student.query.all()
+            students = [s for s in all_s if str(s.id) in marked_student_ids]
     
-    # Sort students by roll no
-    students.sort(key=lambda x: str(getattr(x, 'roll_no', 'zzzz')).lower())
+    # Sort students: Dept wise then by roll no
+    students.sort(key=lambda x: (str(getattr(x, 'dept', '')).lower(), str(getattr(x, 'roll_no', 'zzzz')).lower()))
 
     departments = get_cached_metadata('departments', Department)
     classrooms = get_cached_metadata('classrooms', Classroom)
@@ -1743,7 +1728,8 @@ def status_portal(status_type):
                          classrooms=classrooms,
                          dept_filter=dept_filter,
                          class_filter=class_filter,
-                         selected_date=selected_date)
+                         selected_date=selected_date,
+                         marked_student_ids=marked_student_ids)
 
 @app.route('/mark_status_global/<status_type>/<student_id>', methods=['POST'])
 @login_required

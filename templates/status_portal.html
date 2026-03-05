@@ -69,7 +69,7 @@
                     {% if dept_filter or class_filter or search_query %}
                     Filtered Students ({{ students|length }})
                     {% else %}
-                    Recently Added Students
+                    {{ display_status }} Students Today ({{ students|length }})
                     {% endif %}
                 </h5>
                 <span class="badge bg-soft-primary text-primary px-3 py-2">Marking for: {{ selected_date }}</span>
@@ -98,6 +98,12 @@
                                 {% endfor %}
                             </td>
                             <td class="text-center">
+                                {% if student.id|string in marked_student_ids %}
+                                <span class="badge bg-success px-3 py-2 fw-bold text-uppercase"
+                                    style="font-size: 0.75rem;">
+                                    <i class="bi bi-check-all me-1"></i> Already {{ display_status }}
+                                </span>
+                                {% else %}
                                 <form
                                     action="{{ url_for('mark_status_global', status_type=status_type, student_id=student.id, search=search_query, dept=dept_filter, class_id=class_filter, date=selected_date) }}"
                                     method="POST" class="d-inline">
@@ -106,6 +112,7 @@
                                         <i class="bi bi-check-circle me-1"></i> Mark {{ display_status }}
                                     </button>
                                 </form>
+                                {% endif %}
                             </td>
                         </tr>
                         {% endfor %}
@@ -113,7 +120,13 @@
                         <tr>
                             <td colspan="5" class="text-center py-5">
                                 <i class="bi bi-person-exclamation fs-1 text-muted d-block mb-3"></i>
-                                <p class="text-muted">No students found matching your criteria.</p>
+                                <p class="text-muted">
+                                    {% if not search_query and not dept_filter and not class_filter %}
+                                    No students have been marked as {{ display_status }} for this date.
+                                    {% else %}
+                                    No students found matching your criteria.
+                                    {% endif %}
+                                </p>
                             </td>
                         </tr>
                         {% endif %}
