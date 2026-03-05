@@ -10,35 +10,69 @@
                 class="bi {% if status_type == 'LATE' %}bi-clock-history{% elif status_type == 'OD' %}bi-briefcase{% else %}bi-hospital{% endif %} me-2 text-primary"></i>
             {{ display_status }} Portal
         </h2>
-        <p class="text-muted">Search for students and mark them as {{ display_status }} for today.</p>
+        <p class="text-muted">Search for students and mark them as {{ display_status }} for today or a specific date.
+        </p>
     </div>
 </div>
 
-<!-- Search Section -->
+<!-- Search & Filter Section -->
 <div class="card border-0 shadow-sm mb-4">
     <div class="card-body p-4">
         <form method="GET" action="{{ url_for('status_portal', status_type=status_type) }}" class="row g-3">
-            <div class="col-md-10">
+            <div class="col-md-3">
+                <label class="form-label fw-bold small text-uppercase mb-1 text-muted">1. Select Department</label>
+                <select name="dept" class="form-select bg-light border-0 py-2">
+                    <option value="">-- All Departments --</option>
+                    {% for dept in departments %}
+                    <option value="{{ dept.name }}" {% if dept_filter==dept.name %}selected{% endif %}>{{ dept.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-bold small text-uppercase mb-1 text-muted">2. Select Class</label>
+                <select name="class_id" class="form-select bg-light border-0 py-2">
+                    <option value="">-- All Classes --</option>
+                    {% for classroom in classrooms %}
+                    <option value="{{ classroom.id }}" {% if class_filter==classroom.id %}selected{% endif %}>{{
+                        classroom.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-bold small text-uppercase mb-1 text-muted">3. Date</label>
+                <input type="date" name="date" class="form-control bg-light border-0 py-2" value="{{ selected_date }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-bold small text-uppercase mb-1 text-muted">4. Search Name/Roll No</label>
                 <div class="input-group">
                     <span class="input-group-text bg-light border-0"><i class="bi bi-search"></i></span>
                     <input type="text" name="search" class="form-control bg-light border-0 py-2"
-                        placeholder="Search by Name or Roll Number..." value="{{ search_query }}">
+                        placeholder="Name or Roll No..." value="{{ search_query }}">
                 </div>
             </div>
-            <div class="col-md-2">
-                <button type="submit" class="btn btn-primary w-100 py-2">Search</button>
+            <div class="col-md-12 text-end mt-3">
+                <a href="{{ url_for('status_portal', status_type=status_type) }}"
+                    class="btn btn-outline-secondary px-4 me-2">Clear</a>
+                <button type="submit" class="btn btn-primary px-5">Apply Filters & Search</button>
             </div>
         </form>
     </div>
 </div>
 
 <!-- Results Section -->
-{% if search_query %}
 <div class="row g-4">
     <div class="col-md-12">
         <div class="card border-0 shadow-sm">
-            <div class="card-header bg-white py-3">
-                <h5 class="mb-0 fw-bold">Search Results for "{{ search_query }}"</h5>
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                <h5 class="mb-0 fw-bold">
+                    {% if dept_filter or class_filter or search_query %}
+                    Filtered Students ({{ students|length }})
+                    {% else %}
+                    Recently Added Students
+                    {% endif %}
+                </h5>
+                <span class="badge bg-soft-primary text-primary px-3 py-2">Marking for: {{ selected_date }}</span>
             </div>
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0">
@@ -47,18 +81,25 @@
                             <th class="ps-4">Roll No</th>
                             <th>Student Name</th>
                             <th>Department</th>
+                            <th>Class</th>
                             <th class="text-center">Action</th>
                         </tr>
                     </thead>
                     <tbody>
+                        {% if students %}
                         {% for student in students %}
                         <tr>
                             <td class="ps-4 fw-bold text-muted">{{ student.roll_no }}</td>
                             <td class="fw-semibold">{{ student.name }}</td>
                             <td>{{ student.dept }}</td>
+                            <td>
+                                {% for c in classrooms %}
+                                {% if c.id == student.class_id %}{{ c.name }}{% endif %}
+                                {% endfor %}
+                            </td>
                             <td class="text-center">
                                 <form
-                                    action="{{ url_for('mark_status_global', status_type=status_type, student_id=student.id, search=search_query) }}"
+                                    action="{{ url_for('mark_status_global', status_type=status_type, student_id=student.id, search=search_query, dept=dept_filter, class_id=class_filter, date=selected_date) }}"
                                     method="POST" class="d-inline">
                                     <button type="submit"
                                         class="btn {% if status_type == 'LATE' %}btn-warning{% elif status_type == 'OD' %}btn-info{% else %}btn-danger{% endif %} btn-sm fw-bold px-3">
@@ -67,24 +108,25 @@
                                 </form>
                             </td>
                         </tr>
+                        {% endfor %}
                         {% else %}
                         <tr>
-                            <td colspan="4" class="text-center py-5">
+                            <td colspan="5" class="text-center py-5">
                                 <i class="bi bi-person-exclamation fs-1 text-muted d-block mb-3"></i>
-                                <p class="text-muted">No students found matching your search.</p>
+                                <p class="text-muted">No students found matching your criteria.</p>
                             </td>
                         </tr>
-                        {% endfor %}
+                        {% endif %}
                     </tbody>
                 </table>
             </div>
         </div>
     </div>
 </div>
-{% else %}
-<div class="text-center py-5">
-    <i class="bi bi-search fs-1 text-muted d-block mb-3"></i>
-    <p class="text-muted fs-5">Enter a name or roll number above to find a student.</p>
-</div>
-{% endif %}
+
+<style>
+    .bg-soft-primary {
+        background-color: rgba(13, 110, 253, 0.1);
+    }
+</style>
 {% endblock %}

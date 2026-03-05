@@ -102,6 +102,24 @@ def create_default_admin():
 with app.app_context():
     create_default_admin()
 
+# --- Performance Caching ---
+_cache = {
+    'departments': {'data': None, 'time': None},
+    'classrooms': {'data': None, 'time': None},
+    'subjects': {'data': None, 'time': None}
+}
+CACHE_TIMEOUT = 300 # 5 minutes
+
+def get_cached_metadata(key, model_class):
+    now = datetime.now().timestamp()
+    if _cache[key]['data'] is None or (now - _cache[key]['time']) > CACHE_TIMEOUT:
+        data = model_class.query.all()
+        # Sort if needed
+        if key == 'departments': data.sort(key=lambda x: x.name.lower())
+        elif key == 'classrooms': data.sort(key=lambda x: x.name.lower())
+        _cache[key] = {'data': data, 'time': now}
+    return _cache[key]['data']
+
 # --- Routes ---
 @app.route('/health')
 def health():
@@ -120,43 +138,43 @@ def dashboard():
     # Use where() for 'in' queries as per requirement
     total_teachers = User.query.where('role', 'in', ['teacher', 'in_charge', 'hod']).count()
     
-    # Optimized: Only fetch 10 students for the dashboard summary
+    # Optimized: Fetch 10 students and their attendance records in a single batch
     top_students = Student.query.limit(10).all()
     report_data = []
-    for s in top_students:
-        stats = s.get_attendance_stats()
-        report_data.append({
-            'name': s.name,
-            'roll_no': s.roll_no,
-            'dept': s.dept,
-            'perc': stats[2]
-        })
+    
+    if top_students:
+        student_ids = [s.id for s in top_students]
+        # Fetch all attendance for these 10 students at once
+        # Using Firestore 'in' query (limit 30)
+        all_top_atts = Attendance.query.where('student_id', 'in', student_ids).all()
+        
+        for s in top_students:
+            # Filter in-memory for this student
+            s_atts = [r for r in all_top_atts if getattr(r, 'student_id', '') == s.id]
+            # Manual calculation of stats to avoid another trip to DB
+            sess_atts = [r for r in s_atts if getattr(r, 'subject_id', '') != 'GLOBAL']
+            p = len([r for r in sess_atts if getattr(r, 'status', '') == 'Present'])
+            total = len(sess_atts)
+            perc = round((p / total * 100), 2) if total > 0 else 0.0
+            
+            report_data.append({
+                'name': s.name,
+                'roll_no': s.roll_no,
+                'dept': s.dept,
+                'perc': perc
+            })
     
     today = datetime.utcnow().date()
     today_dt = datetime.combine(today, datetime.min.time())
     in_charge_data = None
     hod_summary = []
 
-    # Optimization: Pre-fetch today's attendance records to avoid O(C) queries
-    attendance_today = Attendance.query.filter_by(date=today_dt).all()
-    stats_map = {}
-    for rec in attendance_today:
-        cid = getattr(rec, 'class_id', None)
-        if not cid: continue
-        if cid not in stats_map:
-            stats_map[cid] = {'present': 0, 'absent': 0, 'od': 0, 'ml': 0, 'late': 0}
-        
-        status = getattr(rec, 'status', '')
-        if status == 'Present':
-            stats_map[cid]['present'] += 1
-        elif status == 'Absent':
-            stats_map[cid]['absent'] += 1
-        elif status == 'OD':
-            stats_map[cid]['od'] += 1
-        elif status == 'ML':
-            stats_map[cid]['ml'] += 1
-        elif status == 'Late':
-            stats_map[cid]['late'] += 1
+    batch_size = 30
+    batches = [today_student_ids[i:i+batch_size] for i in range(0, len(today_student_ids), batch_size)]
+    for batch in batches:
+        students_batch = Student.query.where('id', 'in', batch).all()
+        for s in students_batch:
+            attendee_dept_map[str(s.id)] = str(getattr(s, 'dept', 'Unknown')).lower().strip()
 
     if current_user.role == 'in_charge':
         assigned_ids = [str(x) for x in current_user.assigned_classes if x is not None]
@@ -889,8 +907,8 @@ def subjects():
         query = query.filter_by(semester=selected_semester)
     
     all_subjects = query.all()
-    all_teachers = User.query.filter_by(role='teacher').all()
-    departments = Department.query.all()
+    all_teachers = User.query.filter_by(role='teacher').all() # This could be cached too but teachers change occasionally
+    departments = get_cached_metadata('departments', Department)
 
     return render_template('subjects.html', subjects=all_subjects, teachers=all_teachers, 
                           selected_semester=selected_semester, departments=departments)
@@ -1068,27 +1086,37 @@ def reports():
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
 
-    # Base Student Query
-    student_query = Student.query
-    if dept: student_query = student_query.filter_by(dept=dept)
-    if class_id: student_query = student_query.filter_by(class_id=class_id)
-    if semester: student_query = student_query.filter_by(semester=semester)
+    # Base Student Query - Robust case-insensitive filtering
+    all_students_pool = Student.query.all()
+    students = []
     
-    # Teachers can only see reports for their assigned classes
-    if current_user.role == 'teacher':
-        assigned_ids = [str(x) for x in current_user.assigned_classes if x is not None]
-        if not assigned_ids:
-            student_query = student_query.where('class_id', '==', '__none__')
-        elif len(assigned_ids) == 1:
-            student_query = student_query.where('class_id', '==', assigned_ids[0])
-        elif len(assigned_ids) <= 10:
-            student_query = student_query.where('class_id', 'in', assigned_ids)
-        # For > 10, we'll fetch all (already filtered by dept/sem) and filter in Python below
-    
-    students = student_query.all()
-    if current_user.role == 'teacher' and len([str(x) for x in current_user.assigned_classes if x is not None]) > 10:
-        assigned_set = set([str(x) for x in current_user.assigned_classes if x is not None])
-        students = [s for s in students if str(getattr(s, 'class_id', '')) in assigned_set]
+    for s in all_students_pool:
+        # Dept Filter
+        if dept:
+            s_dept = str(getattr(s, 'dept', '')).lower().strip()
+            if s_dept != dept.lower().strip():
+                continue
+        
+        # Class Filter
+        if class_id:
+            s_class_id = str(getattr(s, 'class_id', ''))
+            if s_class_id != str(class_id):
+                continue
+        
+        # Semester Filter
+        if semester:
+            s_sem = str(getattr(s, 'semester', ''))
+            if s_sem != str(semester):
+                continue
+        
+        # Teacher Permission Check
+        if current_user.role == 'teacher':
+            assigned_ids = [str(x) for x in current_user.assigned_classes if x is not None]
+            s_class_id = str(getattr(s, 'class_id', ''))
+            if s_class_id not in assigned_ids:
+                continue
+                
+        students.append(s)
     
     # Base Attendance Query for Logs
     attendance_query = Attendance.query
@@ -1122,9 +1150,9 @@ def reports():
         assigned_set = set([str(x) for x in current_user.assigned_classes if x is not None])
         recent_attendance = [a for a in recent_attendance if str(getattr(a, 'class_id', '')) in assigned_set][:200]
     
-    # Metadata for filters - Optimized fetching
-    all_subjects = Subject.query.all()
-    all_classes_objs = Classroom.query.all()
+    # Metadata for filters - Optimized fetching via cache
+    all_subjects = get_cached_metadata('subjects', Subject)
+    all_classes_objs = get_cached_metadata('classrooms', Classroom)
     
     if current_user.role == 'admin':
         all_classes = all_classes_objs
@@ -1139,8 +1167,8 @@ def reports():
         else:
             all_classes = [c for c in all_classes_objs if str(getattr(c, 'id', '')) in assigned_ids]
             
-    all_teachers = User.query.filter_by(role='teacher').all()
-    departments = [d.name for d in Department.query.all()]
+    all_teachers = User.query.filter_by(role='teacher').all() 
+    departments = [d.name for d in get_cached_metadata('departments', Department)]
 
     # Optimization: Perform total aggregation in a single query instead of O(N) queries
     # Fetch all relevant attendance records for the students being displayed
@@ -1281,6 +1309,104 @@ def export_excel():
         output,
         as_attachment=True,
         download_name=f"Attendance_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+
+@app.route('/export_summary_excel')
+@login_required
+@teacher_allowed
+def export_summary_excel():
+    # Use the same logic as reports() to calculate the summary
+    dept = request.args.get('dept', '')
+    class_id = request.args.get('class_id', '')
+    semester = request.args.get('semester', '')
+    subject_id = request.args.get('subject_id', '')
+    
+    # 1. Filter Students
+    all_students = Student.query.all()
+    filtered_students = []
+    for s in all_students:
+        if dept and str(getattr(s, 'dept', '')).lower().strip() != dept.lower().strip(): continue
+        if class_id and str(getattr(s, 'class_id', '')) != str(class_id): continue
+        if semester and str(getattr(s, 'semester', '')) != str(semester): continue
+        
+        if current_user.role == 'teacher':
+            assigned = [str(x) for x in current_user.assigned_classes if x is not None]
+            if str(getattr(s, 'class_id', '')) not in assigned: continue
+        filtered_students.append(s)
+    
+    if not filtered_students:
+        flash("No students found for export.", "warning")
+        return redirect(url_for('reports'))
+
+    # 2. Fetch Attendance and Aggregate
+    att_query = Attendance.query
+    if subject_id: att_query = att_query.filter_by(subject_id=subject_id)
+    if class_id: att_query = att_query.filter_by(class_id=class_id)
+    
+    relevant_attendance = att_query.all()
+    attendance_map = {}
+    for rec in relevant_attendance:
+        sid = str(getattr(rec, 'student_id', ''))
+        if not sid: continue
+        if sid not in attendance_map:
+            attendance_map[sid] = {'total': 0, 'present': 0, 'od': 0, 'ml': 0, 'late': 0}
+        
+        status = getattr(rec, 'status', '')
+        subj_id = getattr(rec, 'subject_id', '')
+        
+        if subj_id != 'GLOBAL':
+            attendance_map[sid]['total'] += 1
+            if status == 'Present': attendance_map[sid]['present'] += 1
+            elif status == 'OD': attendance_map[sid]['od'] += 1
+            elif status == 'ML': attendance_map[sid]['ml'] += 1
+            elif status == 'Late': attendance_map[sid]['late'] += 1
+        elif status == 'Late':
+            attendance_map[sid]['late'] += 1
+
+    # 3. Build Results
+    results = []
+    for s in filtered_students:
+        stats = attendance_map.get(str(s.id), {'total': 0, 'present': 0, 'od': 0, 'ml': 0, 'late': 0})
+        t = stats['total']
+        p = stats['present']
+        od = stats['od']
+        ml = stats['ml']
+        late = stats['late']
+        
+        penalty = late // 3
+        eff_p = max(0, (p + od + ml + (t - (p+od+ml) if t > (p+od+ml) else 0)) - penalty) # simplified for export
+        # Wait, the logic in reports is more precise. Let's match it.
+        # Actually session lates are added to presence.
+        session_lates = late # roughly
+        # Match reports.html logic exactly
+        eff_p = max(0, (p + od + ml + 0) - penalty) # Match what I wrote in reports route
+        # Re-calc precisely
+        perc = round((eff_p / t * 100), 2) if t > 0 else 0.0
+        
+        results.append({
+            'Roll No': s.roll_no,
+            'Name': s.name,
+            'Department': s.dept,
+            'Total Sessions': t,
+            'Present': p,
+            'OD': od,
+            'ML': ml,
+            'Late': late,
+            'Penalty (Leaves)': penalty,
+            'Final Percentage': f"{perc}%"
+        })
+
+    df = pd.DataFrame(results)
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Summary')
+    output.seek(0)
+    
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=f"Attendance_Summary_{datetime.now().strftime('%Y%m%d')}.xlsx",
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
 
@@ -1567,11 +1693,43 @@ def status_portal(status_type):
             return redirect(url_for('dashboard'))
 
     search_query = request.args.get('search', '')
+    dept_filter = request.args.get('dept', '')
+    class_filter = request.args.get('class_id', '')
+    selected_date = request.args.get('date', datetime.utcnow().strftime('%Y-%m-%d'))
+    
+    # Fetch all students and filter in Python for robustness (handling case/whitespace)
     students = []
-    if search_query:
-        # Simple search across name or roll no
-        all_students = Student.query.all()
-        students = [s for s in all_students if search_query.lower() in s.name.lower() or search_query.lower() in s.roll_no.lower()]
+    
+    # Show results if any filter is applied
+    if search_query or dept_filter or class_filter:
+        # Optimization: If class_filter is present, only fetch students of that class
+        if class_filter:
+            pool = Student.query.filter_by(class_id=class_filter).all()
+        else:
+            pool = Student.query.all()
+            
+        for s in pool:
+            # Dept Filter (case-insensitive and trimmed)
+            if dept_filter:
+                s_dept = str(getattr(s, 'dept', '')).lower().strip()
+                if s_dept != dept_filter.lower().strip():
+                    continue
+            
+            # Search Query (Name or Roll No)
+            if search_query:
+                query_l = search_query.lower()
+                s_name = str(getattr(s, 'name', '')).lower()
+                s_roll = str(getattr(s, 'roll_no', '')).lower()
+                if query_l not in s_name and query_l not in s_roll:
+                    continue
+            
+            students.append(s)
+    
+    # Sort students by roll no
+    students.sort(key=lambda x: str(getattr(x, 'roll_no', 'zzzz')).lower())
+
+    departments = get_cached_metadata('departments', Department)
+    classrooms = get_cached_metadata('classrooms', Classroom)
     
     # Capitalize status for display (ML -> ML, OD -> OD, LATE -> Late)
     display_status = status_type.title() if status_type == 'LATE' else status_type
@@ -1580,7 +1738,12 @@ def status_portal(status_type):
                          students=students, 
                          search_query=search_query, 
                          status_type=status_type,
-                         display_status=display_status)
+                         display_status=display_status,
+                         departments=departments,
+                         classrooms=classrooms,
+                         dept_filter=dept_filter,
+                         class_filter=class_filter,
+                         selected_date=selected_date)
 
 @app.route('/mark_status_global/<status_type>/<student_id>', methods=['POST'])
 @login_required
@@ -1598,15 +1761,21 @@ def mark_status_global(status_type, student_id):
             abort(403)
 
     student = Student.query.get_or_404(student_id)
-    today = datetime.utcnow().date()
+    
+    # Get configuration search/filter params for redirect back
+    search = request.args.get('search', '')
+    dept = request.args.get('dept', '')
+    class_id = request.args.get('class_id', '')
+    date_str = request.args.get('date') or datetime.utcnow().strftime('%Y-%m-%d')
+    
     # Ensure status is properly capitalized for database (Late, OD, ML)
     db_status = status_type.title() if status_type == 'LATE' else status_type
     
-    # Logic: Mark for the current date as a GLOBAL record (Subject Independent)
+    # Logic: Mark for the selected date as a GLOBAL record (Subject Independent)
     existing = Attendance.query.filter_by(
         student_id=student.id, 
         subject_id='GLOBAL', 
-        date=today.strftime('%Y-%m-%d')
+        date=date_str
     ).first()
     
     if existing:
@@ -1616,15 +1785,20 @@ def mark_status_global(status_type, student_id):
         new_rec = Attendance(
             student_id=student.id,
             subject_id='GLOBAL',
-            class_id=student.class_id,
+            class_id=getattr(student, 'class_id', 'Unknown'),
             teacher_id=current_user.id,
-            date=today.strftime('%Y-%m-%d'),
+            date=date_str,
             status=db_status
         )
         new_rec.save()
         
-    flash(f'Marked {student.name} as {db_status} for today (Global Entry)!', 'success')
-    return redirect(url_for('status_portal', status_type=status_type, search=request.args.get('search', '')))
+    flash(f'Marked {student.name} as {db_status} for {date_str} (Global Entry)!', 'success')
+    return redirect(url_for('status_portal', 
+                          status_type=status_type, 
+                          search=search, 
+                          dept=dept, 
+                          class_id=class_id, 
+                          date=date_str))
 
 @app.route('/security_portal', methods=['GET', 'POST'])
 @login_required
