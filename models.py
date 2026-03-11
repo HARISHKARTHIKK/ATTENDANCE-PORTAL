@@ -220,6 +220,7 @@ class User(UserMixin, FirestoreModel):
         if not hasattr(self, 'name'):
             # Default name to username if name is missing
             self.name = getattr(self, 'username', 'User')
+        if not hasattr(self, 'email'): self.email = ""
 
     def get_id(self): return str(self.id)
 
@@ -244,40 +245,44 @@ class Student(FirestoreModel):
             query = query.filter_by(subject_id=subject_id)
         records = query.all()
         
-        # Filter out global records for total session count
-        session_records = [r for r in records if getattr(r, 'subject_id', '') != 'GLOBAL']
-        global_records = [r for r in records if getattr(r, 'subject_id', '') == 'GLOBAL']
-        total = len(session_records)
+        # Day-wise grouping
+        days_marked = {} # date -> set of statuses
+        all_lates_count = 0
+        for r in records:
+            dt = getattr(r, 'date', '')
+            st = getattr(r, 'status', 'Present')
+            if dt not in days_marked:
+                days_marked[dt] = set()
+            days_marked[dt].add(st)
+            if st == 'Late':
+                all_lates_count += 1
+                
+        total_days = len(days_marked)
+        if total_days == 0:
+            return 0, 0, 0.0, 0, 0, 0
+            
+        absent_days = 0
+        od_days = 0
+        leave_days = 0
+        late_days = 0
+        present_days = 0
         
-        if total == 0:
-            # Check if there are any global stats even if no classes marked yet
-            global_lates = len([r for r in global_records if getattr(r, 'status', '') == 'Late'])
-            global_od = len([r for r in global_records if getattr(r, 'status', '') == 'OD'])
-            global_ml = len([r for r in global_records if getattr(r, 'status', '') == 'ML'])
-            return 0, 0, 0.0, global_od, global_ml, global_lates
+        for dt, statuses in days_marked.items():
+            if 'Absent' in statuses:
+                absent_days += 1
+            else:
+                present_days += 1
+                if 'OD' in statuses: od_days += 1
+                elif 'Leave' in statuses: leave_days += 1
+                elif 'Late' in statuses: late_days += 1
         
-        present = len([r for r in session_records if getattr(r, 'status', '') == 'Present'])
-        # OD and ML can be from specific sessions or marked globally for the day
-        od = len([r for r in session_records if getattr(r, 'status', '') == 'OD']) + \
-             len([r for r in global_records if getattr(r, 'status', '') == 'OD'])
-             
-        ml = len([r for r in session_records if getattr(r, 'status', '') == 'ML']) + \
-             len([r for r in global_records if getattr(r, 'status', '') == 'ML'])
+        # Penalty: 3 Total Lates across all sessions = 1 day off from presence
+        penalty = all_lates_count // 3
+        effective_present = max(0, present_days - penalty)
         
-        # Lates can be from subject sessions or global (security)
-        late = len([r for r in records if getattr(r, 'status', '') == 'Late'])
+        percentage = min(100.0, (effective_present / total_days) * 100) if total_days > 0 else 0.0
         
-        # 3 Lates = 1 Leave (Absent)
-        # We calculate effective presence as (Total Potential Presence) - (Penalty)
-        session_lates = len([r for r in session_records if getattr(r, 'status', '') == 'Late'])
-        effective_presence = present + od + ml + session_lates
-        
-        # Penalty is 1 day off for every 3 lates (including global ones)
-        penalty = late // 3
-        effective_present = max(0, effective_presence - penalty)
-        
-        percentage = (effective_present / total) * 100
-        return total, effective_present, round(min(100.0, percentage), 2), od, ml, late
+        return total_days, effective_present, round(percentage, 2), od_days, leave_days, all_lates_count
 
 class Subject(FirestoreModel):
     __collection__ = 'subjects'

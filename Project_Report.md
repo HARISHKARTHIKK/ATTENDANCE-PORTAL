@@ -225,7 +225,7 @@ Unlike traditional SQL databases (MySQL/PostgreSQL), Firestore is a document-ori
 | `student_id` | String | Reference to 'students' |
 | `subject_id` | String | Reference to 'subjects' or 'GLOBAL' |
 | `date` | String | YYYY-MM-DD format |
-| `status` | String | Present, Absent, Late, OD, ML |
+| `status` | String | Present, Absent, Late, OD, Leave |
 | `marked_by` | String | User ID who marked |
 
 ---
@@ -312,17 +312,17 @@ def get_attendance_stats(self, subject_id=None):
     session_records = [r for r in records if r.subject_id != 'GLOBAL']
     global_records = [r for r in records if r.subject_id == 'GLOBAL']
     
-    # Presence Logic: (Present + OD + ML + Late_in_session)
+    # Presence Logic: (Present + OD + Leave + Late_in_session)
     present = len([r for r in session_records if r.status == 'Present'])
     od = len([r for r in records if r.status == 'OD'])
-    ml = len([r for r in records if r.status == 'ML'])
+    leave = len([r for r in records if r.status == 'Leave'])
     session_lates = len([r for r in session_records if r.status == 'Late'])
     
     # Calculate Penalty: (All Lates // 3)
     total_lates = len([r for r in records if r.status == 'Late'])
     penalty = total_lates // 3
     
-    effective_presence = (present + od + ml + session_lates) - penalty
+    effective_presence = (present + od + leave + session_lates) - penalty
     percentage = (effective_presence / len(session_records)) * 100
     return round(percentage, 2)
 ```
@@ -440,7 +440,7 @@ Various layers of testing were conducted:
 | :--- | :--- | :--- | :--- | :--- |
 | TC-01 | Login Validation | Correct Credentials | Redirect to Dashboard | Pass |
 | TC-02 | RBAC Protection | Teacher user trying `/departments` | 403 Forbidden / Redirect | Pass |
-| TC-03 | Penalty Logic | 6 Present, 6 Lates, 0 OD/ML | Effective = 4 (6-2), Perc = 66% | Pass |
+| TC-03 | Penalty Logic | 6 Present, 6 Lates, 0 OD/Leave | Effective = 4 (6-2), Perc = 66% | Pass |
 | TC-04 | Bulk Upload | CSV with 10 rows | 10 new student records in DB | Pass |
 | TC-05 | Excel Export | Click "Export" | `.xlsx` file downloaded with data | Pass |
 
@@ -589,7 +589,7 @@ The application will be accessible at `http://127.0.0.1:5001`.
 
 ## **16. GLOSSARY OF TERMS**
 
-- **Effective Presence**: The number of days/sessions a student is considered "Present" after adding OD/ML and subtracting Late Penalties.
+- **Effective Presence**: The number of days/sessions a student is considered "Present" after adding OD/Leave and subtracting Late Penalties.
 - **Global Late**: A tardiness record marked at the gate, not tied to a specific subject, yet impacting overall academic standing.
 - **Jinja2**: The templating engine for Python that allows embedding logic inside HTML files.
 - **NoSQL**: A non-relational database (like Firestore) that uses documents rather than rigid tables.

@@ -40,26 +40,26 @@
             <div class="row g-4">
                 <div class="col-md-6">
                     <div class="card bg-white h-100 p-4 border-start border-4 border-primary">
-                        <h6 class="text-uppercase mb-2 text-muted small fw-bold">Total Classes Held</h6>
+                        <h6 class="text-uppercase mb-2 text-muted small fw-bold">Total Days</h6>
                         <h2 class="fw-bold mb-0 text-dark">{{ total_held }}</h2>
                     </div>
                 </div>
                 <div class="col-md-6">
                     <div class="card bg-white h-100 p-4 border-start border-4 border-success">
-                        <h6 class="text-uppercase mb-2 text-muted small fw-bold">Total Attended</h6>
+                        <h6 class="text-uppercase mb-2 text-muted small fw-bold">Total Days Present</h6>
                         <h2 class="fw-bold mb-0 text-success">{{ total_present }}</h2>
                     </div>
                 </div>
                 <div class="col-md-6">
                     <div class="card bg-white h-100 p-4 border-start border-4 border-danger">
-                        <h6 class="text-uppercase mb-2 text-muted small fw-bold">Total Absent</h6>
+                        <h6 class="text-uppercase mb-2 text-muted small fw-bold">Total Days Absent</h6>
                         <h2 class="fw-bold mb-0 text-danger">{{ total_absent }}</h2>
                     </div>
                 </div>
                 <div class="col-md-4">
                     <div class="card bg-white h-100 p-4 border-start border-4 border-info">
-                        <h6 class="text-uppercase mb-2 text-muted small fw-bold">OD / ML</h6>
-                        <h2 class="fw-bold mb-0 text-info">{{ total_od + total_ml }}</h2>
+                        <h6 class="text-uppercase mb-2 text-muted small fw-bold">OD / Leave</h6>
+                        <h2 class="fw-bold mb-0 text-info">{{ total_od + total_leave }}</h2>
                     </div>
                 </div>
                 <div class="col-md-4">
@@ -100,7 +100,7 @@
                         <th class="text-center">Total</th>
                         <th class="text-center">Attended</th>
                         <th class="text-center">OD</th>
-                        <th class="text-center">ML</th>
+                        <th class="text-center">Leave</th>
                         <th class="text-center">Late</th>
                         <th style="width: 200px;">Status</th>
                         <th class="text-end pe-3">%</th>
@@ -114,7 +114,7 @@
                         <td class="text-center">{{ sub.total }}</td>
                         <td class="text-center text-success fw-bold">{{ sub.present }}</td>
                         <td class="text-center text-info">{{ sub.od }}</td>
-                        <td class="text-center text-warning">{{ sub.ml }}</td>
+                        <td class="text-center text-warning">{{ sub.leave }}</td>
                         <td class="text-center text-secondary">{{ sub.late }}</td>
                         <td>
                             <div class="progress" style="height: 8px; border-radius: 4px;">
@@ -136,20 +136,20 @@
             const attendanceChart = new Chart(ctx, {
                 type: 'pie',
                 data: {
-                    labels: ['Present', 'Absent', 'OD', 'ML', 'Late'],
+                    labels: ['Present', 'Absent', 'OD', 'Leave', 'Late'],
                     datasets: [{
                         data: [
                             {{ total_present }},
                     {{ total_absent }},
                             {{ total_od }},
-            {{ total_ml }},
+            {{ total_leave }},
             {{ total_late }}
                         ],
             backgroundColor: [
             '#2ecc71', // Green for Present
             '#e74c3c', // Red for Absent
             '#3498db', // Blue for OD
-            '#f1c40f', // Yellow for ML
+            '#f1c40f', // Yellow for Leave
             '#95a5a6'  // Grey for Late
         ],
             borderWidth: 0,

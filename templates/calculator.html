@@ -55,15 +55,15 @@
 
                 <ul class="list-group list-group-flush">
                     <li class="list-group-item d-flex justify-content-between align-items-center px-0">
-                        <span>Total Classes Held</span>
+                        <span>Total Days</span>
                         <span class="fw-bold">{{ t_stats[0] }}</span>
                     </li>
                     <li class="list-group-item d-flex justify-content-between align-items-center px-0">
-                        <span>Effective Attendance</span>
+                        <span>Present Days</span>
                         <span class="fw-bold text-success">{{ t_stats[1] }}</span>
                     </li>
                     <li class="list-group-item d-flex justify-content-between align-items-center px-0">
-                        <span>OD / ML Count</span>
+                        <span>OD / Leave Count</span>
                         <span class="fw-bold text-info">{{ t_stats[3] + t_stats[4] }}</span>
                     </li>
                     <li class="list-group-item d-flex justify-content-between align-items-center px-0">
@@ -84,13 +84,13 @@
             <div class="card-body p-4">
                 <div class="row g-4 mb-4">
                     <div class="col-md-6">
-                        <label class="form-label fw-bold">Future Classes</label>
+                        <label class="form-label fw-bold">Future Days</label>
                         <input type="number" id="future_total" class="form-control form-control-lg bg-light border-0"
                             placeholder="0" min="0">
-                        <small class="text-muted">Number of expected upcoming classes.</small>
+                        <small class="text-muted">Number of expected upcoming days.</small>
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label fw-bold">Classes to Attend</label>
+                        <label class="form-label fw-bold">Days to Attend</label>
                         <input type="number" id="future_present" class="form-control form-control-lg bg-light border-0"
                             placeholder="0" min="0">
                         <small class="text-muted">How many of these will you attend?</small>
@@ -137,13 +137,12 @@
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         {% if t_stats %}
-        const currentTotal = {{ t_stats[0]| int
-    }};
-    const currentPresent = {{ t_stats[1]| int }};
-    {% else %}
-    const currentTotal = 0;
-    const currentPresent = 0;
-    {% endif %}
+        const currentTotal = {{ t_stats[0] | int }};
+        const currentPresent = {{ t_stats[1] | int }};
+        {% else %}
+        const currentTotal = 0;
+        const currentPresent = 0;
+        {% endif %}
 
     const futureTotalVal = document.getElementById('future_total');
     const futurePresentVal = document.getElementById('future_present');

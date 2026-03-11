@@ -63,8 +63,8 @@
         <div class="card h-100 shadow-sm border-0 bg-warning text-dark p-3">
             <div class="d-flex justify-content-between">
                 <div>
-                    <p class="small text-dark-50 mb-1">Today's Late/OD/ML</p>
-                    <h3 class="fw-bold mb-0">{{ stats.late + stats.od + stats.ml }}</h3>
+                    <p class="small text-dark-50 mb-1">Today's Late/OD/Leave</p>
+                    <h3 class="fw-bold mb-0">{{ stats.late + stats.od + stats.leave }}</h3>
                 </div>
                 <i class="bi bi-clock-history fs-1 opacity-25"></i>
             </div>
@@ -111,8 +111,8 @@
                         <span class="badge bg-warning text-dark rounded-pill px-2" style="font-size: 0.75rem;">Late</span>
                         {% elif status == 'OD' %}
                         <span class="badge bg-info rounded-pill px-2" style="font-size: 0.75rem;">OD</span>
-                        {% elif status == 'ML' %}
-                        <span class="badge bg-secondary rounded-pill px-2" style="font-size: 0.75rem;">ML</span>
+                        {% elif status == 'Leave' %}
+                        <span class="badge bg-secondary rounded-pill px-2" style="font-size: 0.75rem;">Leave</span>
                         {% else %}
                         <span class="text-muted opacity-50">-</span>
                         {% endif %}

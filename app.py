@@ -209,42 +209,40 @@ def dashboard():
     in_charge_data = None
     hod_summary = []
 
-    # Optimization: Fetch today's records once
     attendance_today = Attendance.query.filter_by(date=today_dt).all()
-    stats_map = {}
-    today_student_ids = []
-    
+    student_today_statuses = {}
     for rec in attendance_today:
-        sid = getattr(rec, 'student_id', None)
-        if sid: today_student_ids.append(sid)
+        sid = str(getattr(rec, 'student_id', ''))
+        if not sid: continue
+        if sid not in student_today_statuses:
+            student_today_statuses[sid] = set()
+        student_today_statuses[sid].add(getattr(rec, 'status', ''))
         
-        cid = getattr(rec, 'class_id', None)
-        if not cid: continue
+    # Resolve student depts and classes for stats
+    all_s = Student.query.all()
+    student_map = {str(s.id): s for s in all_s}
+    
+    stats_map = {} # cid -> {'present', 'absent', 'od', 'leave', 'late'}
+    attendee_dept_map = {} # sid -> dept
+    
+    for sid, statuses in student_today_statuses.items():
+        s_obj = student_map.get(sid)
+        if not s_obj: continue
+        
+        cid = str(getattr(s_obj, 'class_id', ''))
+        dept = str(getattr(s_obj, 'dept', 'Unknown'))
+        attendee_dept_map[sid] = dept
+        
         if cid not in stats_map:
-            stats_map[cid] = {'present': 0, 'absent': 0, 'od': 0, 'ml': 0, 'late': 0}
-        
-        status = getattr(rec, 'status', '')
-        if status == 'Present':
-            stats_map[cid]['present'] += 1
-        elif status == 'Absent':
+            stats_map[cid] = {'present': 0, 'absent': 0, 'od': 0, 'leave': 0, 'late': 0}
+            
+        if 'Absent' in statuses:
             stats_map[cid]['absent'] += 1
-        elif status == 'OD':
-            stats_map[cid]['od'] += 1
-        elif status == 'ML':
-            stats_map[cid]['ml'] += 1
-        elif status == 'Late':
-            stats_map[cid]['late'] += 1
-
-    # Pre-resolve student departments for dept stats
-    today_student_ids = list(set(today_student_ids))
-    attendee_dept_map = {}
-    if today_student_ids:
-        all_s = Student.query.all()
-        for sid in today_student_ids:
-            for s in all_s:
-                if str(s.id) == str(sid):
-                    attendee_dept_map[str(sid)] = str(getattr(s, 'dept', 'Unknown'))
-                    break
+        else:
+            stats_map[cid]['present'] += 1
+            if 'OD' in statuses: stats_map[cid]['od'] += 1
+            elif 'Leave' in statuses: stats_map[cid]['leave'] += 1
+            elif 'Late' in statuses: stats_map[cid]['late'] += 1
 
 
     if current_user.role == 'in_charge':
@@ -307,41 +305,43 @@ def dashboard():
                 _cache['dept_counts'] = {'data': dept_counts, 'time': datetime.now().timestamp()}
             total_dept_students = _cache['dept_counts']['data'].get(d.name, 0)
 
-        present_today = 0
-        absent_today = 0
-        late_today = 0
+        dept_present = 0
+        dept_absent = 0
+        dept_late = 0
         
-        for rec in attendance_today:
-            sid = str(getattr(rec, 'student_id', ''))
+        for sid, statuses in student_today_statuses.items():
             s_dept = str(attendee_dept_map.get(sid, '')).lower().strip()
-            if sid and s_dept == str(d.name).lower().strip():
-                # For teacher, double check the student belongs to their classes
+            if s_dept == str(d.name).lower().strip():
+                # For teacher, filter by their assigned classes
                 if current_user.role in ['teacher', 'in_charge'] and assigned_ids:
-                    s_obj = all_students_map.get(sid) if 'all_students_map' in locals() else Student.query.get(sid)
+                    s_obj = student_map.get(sid)
                     if not s_obj or str(getattr(s_obj, 'class_id', '')) not in assigned_ids:
                         continue
                 
-                status = getattr(rec, 'status', '')
-                if status == 'Present':
-                    present_today += 1
-                elif status == 'Absent':
-                    absent_today += 1
-                elif status == 'Late':
-                    late_today += 1
+                if 'Absent' in statuses:
+                    dept_absent += 1
+                else:
+                    dept_present += 1
+                    if 'Late' in statuses: dept_late += 1
         
         dept_stats.append({
             'name': d.name,
             'code': d.code,
             'total_students': total_dept_students,
-            'present': present_today,
-            'absent': absent_today,
-            'late': late_today
+            'present': dept_present,
+            'absent': dept_absent,
+            'late': dept_late
         })
 
-    # Calculate Today's Attendance Stats
+    # Calculate Overall Today's Summary
     total_present_today = 0
-    for rec in attendance_today:
-        if getattr(rec, 'status', '') == 'Present':
+    for sid, statuses in student_today_statuses.items():
+        if 'Absent' not in statuses:
+            # Check if student belongs to user scope
+            if current_user.role in ['teacher', 'in_charge'] and assigned_ids:
+                s_obj = student_map.get(sid)
+                if not s_obj or str(getattr(s_obj, 'class_id', '')) not in assigned_ids:
+                    continue
             total_present_today += 1
             
     today_attendance_perc = 0
@@ -404,16 +404,28 @@ def class_incharge():
         class_subjects = Subject.query.filter_by(dept=class_dept, semester=class_semester).all()
         class_subjects.sort(key=lambda x: str(getattr(x, 'name', '')).lower())
 
-    # Today's stats
+    # Today's stats (Day-wise student based)
     today = datetime.utcnow().date()
     today_dt = datetime.combine(today, datetime.min.time())
     attendance_today = Attendance.query.filter_by(date=today_dt, class_id=selected_class_id).all()
     
-    stats = {'present': 0, 'absent': 0, 'od': 0, 'ml': 0, 'late': 0}
+    # student_id -> set of statuses today
+    student_today_statuses = {}
     for rec in attendance_today:
-        status = getattr(rec, 'status', '').lower()
-        if status in stats:
-            stats[status] += 1
+        sid = str(getattr(rec, 'student_id', ''))
+        if sid not in student_today_statuses:
+            student_today_statuses[sid] = set()
+        student_today_statuses[sid].add(getattr(rec, 'status', ''))
+
+    stats = {'present': 0, 'absent': 0, 'od': 0, 'leave': 0, 'late': 0}
+    for sid, statuses in student_today_statuses.items():
+        if 'Absent' in statuses:
+            stats['absent'] += 1
+        else:
+            stats['present'] += 1
+            if 'OD' in statuses: stats['od'] += 1
+            elif 'Leave' in statuses: stats['leave'] += 1
+            elif 'Late' in statuses: stats['late'] += 1
         
     # Overall student stats + Subject-wise stats
     rep_data = []
@@ -444,7 +456,7 @@ def class_incharge():
             'present': overall_res[1],
             'percentage': overall_res[2],
             'od': overall_res[3],
-            'ml': overall_res[4],
+            'leave': overall_res[4],
             'late': overall_res[5],
             'subject_today': subject_today_data
         })
@@ -579,7 +591,7 @@ def bulk_upload_teachers():
                     flash(f'Missing required column: {col}', 'danger')
                     return redirect(url_for('teachers'))
             
-            existing_users = {str(u.email).strip().lower() for u in User.query.all()}
+            existing_users = {str(getattr(u, 'email', '')).strip().lower() for u in User.query.all() if getattr(u, 'email', None)}
             all_classes_map = {str(c.name).strip().lower(): str(c.id) for c in Classroom.query.all()}
             success_count = 0
             
@@ -801,7 +813,7 @@ def get_teacher_data(id):
     return jsonify({
         'id': teacher.id,
         'name': teacher.name,
-        'email': teacher.email,
+        'email': getattr(teacher, 'email', ''),
         'phone': teacher.phone,
         'assigned_classes': teacher.assigned_classes
     })
@@ -832,7 +844,7 @@ def api_profile():
     
     return jsonify({
         'name': current_user.name,
-        'email': current_user.email,
+        'email': getattr(current_user, 'email', ''),
         'phone': current_user.phone,
         'username': current_user.username,
         'role': current_user.role
@@ -1227,7 +1239,7 @@ def bulk_upload_subjects():
                     flash(f'Missing required column: {col}', 'danger')
                     return redirect(url_for('subjects'))
             
-            teachers_map = {str(u.email).strip().lower(): u.id for u in User.query.filter_by(role='teacher').all()}
+            teachers_map = {str(getattr(u, 'email', '')).strip().lower(): u.id for u in User.query.filter_by(role='teacher').all() if getattr(u, 'email', None)}
             success_count = 0
             
             for _, row in df.iterrows():
@@ -1365,7 +1377,7 @@ def attendance():
         count = 0
         
         # Valid status options
-        VALID_STATUSES = ['Present', 'Absent', 'OD', 'ML', 'Late']
+        VALID_STATUSES = ['Present', 'Absent', 'OD', 'Leave', 'Late']
         
         for student in students:
             status = request.form.get(f'status_{student.id}')
@@ -1427,6 +1439,106 @@ def attendance_shortcut():
     if current_user.role in ['admin', 'teacher']:
         return redirect(url_for('attendance'))
     return redirect(url_for('student_dashboard'))
+
+@app.route('/attendance/history')
+@login_required
+def attendance_history():
+    selected_date = request.args.get('date', datetime.utcnow().strftime('%Y-%m-%d'))
+    class_id = request.args.get('class_id')
+    
+    # Metadata for filters
+    all_classes_objs = get_cached_metadata('classrooms', Classroom)
+    departments = get_cached_metadata('departments', Department)
+    all_subjects = {str(s.id): s for s in get_cached_metadata('subjects', Subject)}
+    
+    # Permission guards
+    is_staff = current_user.role in ['admin', 'hod', 'teacher', 'in_charge']
+    
+    if current_user.role == 'student':
+        student = Student.query.get(current_user.student_id)
+        if not student:
+            flash('Student record not found.', 'danger')
+            return redirect(url_for('dashboard'))
+            
+        # Attendance on this date
+        records = Attendance.query.filter_by(student_id=student.id, date=selected_date).all()
+        
+        history = []
+        for r in records:
+            sub = all_subjects.get(str(r.subject_id))
+            history.append({
+                'subject_name': sub.name if sub else 'Global/Other',
+                'subject_code': sub.code if sub else 'N/A',
+                'status': r.status,
+                'marked_by': User.query.get(r.teacher_id).name if r.teacher_id else 'System'
+            })
+            
+        return render_template('daily_attendance.html', 
+                             date=selected_date, 
+                             history=history,
+                             student=student)
+                             
+    elif is_staff:
+        # Staff can see class-wise attendance for a day
+        if current_user.role in ['teacher', 'in_charge']:
+            assigned_ids = [str(x) for x in getattr(current_user, 'assigned_classes', []) if x is not None]
+            classes = [c for c in all_classes_objs if str(c.id) in assigned_ids]
+        else:
+            classes = all_classes_objs
+            
+        # If class_id is not provided but they have exactly 1 assigned class, default to it
+        if not class_id and len(classes) == 1:
+            class_id = str(classes[0].id)
+
+        students_data = []
+        subjects_today = []
+        
+        if class_id:
+            # Get students in this class
+            students = Student.query.filter_by(class_id=class_id).all()
+            students.sort(key=lambda x: str(getattr(x, 'roll_no', '')).lower())
+            
+            # Get all attendance records for this class on this date
+            records = Attendance.query.filter_by(class_id=class_id, date=selected_date).all()
+            
+            # Map student_id -> subject_id -> record
+            attendance_map = {}
+            found_subject_ids = set()
+            for r in records:
+                sid = str(r.student_id)
+                subid = str(r.subject_id)
+                if sid not in attendance_map:
+                    attendance_map[sid] = {}
+                attendance_map[sid][subid] = r
+                found_subject_ids.add(subid)
+            
+            # List of subjects that have records today
+            subjects_today = [all_subjects[sid] for sid in found_subject_ids if sid in all_subjects]
+            if 'GLOBAL' in found_subject_ids:
+                # Add a dummy subject for global entries
+                subjects_today.append(Subject(id='GLOBAL', name='Global/Late', code='GLB'))
+                
+            for s in students:
+                s_attendance = []
+                for sub in subjects_today:
+                    rec = attendance_map.get(str(s.id), {}).get(str(sub.id))
+                    s_attendance.append(rec.status if rec else '-')
+                
+                students_data.append({
+                    'student': s,
+                    'attendance': s_attendance
+                })
+        
+        return render_template('daily_attendance.html',
+                             date=selected_date,
+                             classes=classes,
+                             class_id=class_id,
+                             subjects_today=subjects_today,
+                             students_data=students_data,
+                             departments=departments)
+    
+    else:
+        abort(403)
 
 # -- Reports --
 @app.route('/reports')
@@ -1531,60 +1643,90 @@ def reports():
     if class_id: rep_attendance_query = rep_attendance_query.filter_by(class_id=class_id)
     
     relevant_attendance = rep_attendance_query.all()
-    attendance_map = {}
+    # student_id -> {date -> set of statuses}
+    student_days_map = {}
+    student_lates_map = {}
+    
     for rec in relevant_attendance:
         sid = getattr(rec, 'student_id', None)
         if not sid: continue
-        if sid not in attendance_map:
-            attendance_map[sid] = {'total': 0, 'present': 0, 'absent': 0, 'od': 0, 'ml': 0, 'late': 0, 'session_lates': 0}
+        sid_str = str(sid)
+        if sid_str not in student_days_map:
+            student_days_map[sid_str] = {}
+            student_lates_map[sid_str] = 0
         
-        status = getattr(rec, 'status', '')
-        subj_id = getattr(rec, 'subject_id', '')
+        dt = getattr(rec, 'date', None)
+        if not dt: continue
         
-        if subj_id != 'GLOBAL':
-            attendance_map[sid]['total'] += 1
-            if status == 'Present':
-                attendance_map[sid]['present'] += 1
-            elif status == 'Absent':
-                attendance_map[sid]['absent'] += 1
-            elif status == 'OD':
-                attendance_map[sid]['od'] += 1
-            elif status == 'ML':
-                attendance_map[sid]['ml'] += 1
-            elif status == 'Late':
-                attendance_map[sid]['late'] += 1
-                attendance_map[sid]['session_lates'] += 1
-        else:
-            # GLOBAL record from security
-            if status == 'Late':
-                attendance_map[sid]['late'] += 1
+        if dt not in student_days_map[sid_str]:
+            student_days_map[sid_str][dt] = set()
+            
+        st = getattr(rec, 'status', 'Present')
+        student_days_map[sid_str][dt].add(st)
+        if st == 'Late':
+            student_lates_map[sid_str] += 1
 
     report_data = []
     for s in students:
-        stats = attendance_map.get(s.id, {'total': 0, 'present': 0, 'absent': 0, 'od': 0, 'ml': 0, 'late': 0, 'session_lates': 0})
-        t = stats['total']
-        p = stats['present']
-        od = stats['od']
-        ml = stats['ml']
-        late = stats['late']
-        session_lates = stats['session_lates']
+        s_id_str = str(s.id)
+        days = student_days_map.get(s_id_str, {})
+        total_days = len(days)
         
-        # 3 Lates = 1 Leave
-        # Logic: Penalty = Total Lates // 3
-        # Effective Presence = (p + od + ml + session_lates) - Penalty
-        penalty = late // 3
-        effective_present = max(0, (p + od + ml + session_lates) - penalty)
+        present_count = 0
+        absent_count = 0
+        od_count = 0
+        leave_count = 0
+        late_count = 0 # Late days count
         
-        perc = min(100.0, round((effective_present / t * 100), 2)) if t > 0 else 0.0
+        for dt, statuses in days.items():
+            if 'Absent' in statuses:
+                absent_count += 1
+            else:
+                present_count += 1
+                if 'OD' in statuses: od_count += 1
+                elif 'Leave' in statuses: leave_count += 1
+                elif 'Late' in statuses: late_count += 1
+        
+        total_lates_all = student_lates_map.get(s_id_str, 0)
+        penalty = total_lates_all // 3
+        effective_present = max(0, present_count - penalty)
+        
+        perc = min(100.0, (effective_present / total_days * 100)) if total_days > 0 else 0.0
+
+    report_data = []
+    for s in students:
+        s_id_str = str(s.id)
+        days = student_days_map.get(s_id_str, {})
+        total_days = len(days)
+        
+        present_count = 0
+        absent_count = 0
+        od_count = 0
+        leave_count = 0
+        
+        for dt, statuses in days.items():
+            if 'Absent' in statuses:
+                absent_count += 1
+            else:
+                present_count += 1
+                if 'OD' in statuses: od_count += 1
+                elif 'Leave' in statuses: leave_count += 1
+        
+        total_lates_all = student_lates_map.get(s_id_str, 0)
+        penalty = total_lates_all // 3
+        effective_present = max(0, present_count - penalty)
+        
+        perc = min(100.0, (effective_present / total_days * 100)) if total_days > 0 else 0.0
+        
         report_data.append({
-            'student': s, 
-            'total': t, 
-            'present': effective_present, 
-            'percentage': perc,
-            'od': od,
-            'ml': ml,
-            'late': late,
-            'raw_present': p
+            'student': s,
+            'total': total_days,
+            'present': effective_present,
+            'absent': absent_count,
+            'od': od_count,
+            'leave': leave_count,
+            'late': total_lates_all,
+            'perc': round(perc, 2)
         })
 
     # Create mappings for manual relationship resolution in templates
@@ -1699,54 +1841,64 @@ def export_summary_excel():
     if class_id: att_query = att_query.filter_by(class_id=class_id)
     
     relevant_attendance = att_query.all()
-    attendance_map = {}
+    # student_id -> {date -> set of statuses}
+    student_days_map = {}
+    student_lates_map = {}
+    
     for rec in relevant_attendance:
         sid = str(getattr(rec, 'student_id', ''))
         if not sid: continue
-        if sid not in attendance_map:
-            attendance_map[sid] = {'total': 0, 'present': 0, 'od': 0, 'ml': 0, 'late': 0}
+        if sid not in student_days_map:
+            student_days_map[sid] = {}
+            student_lates_map[sid] = 0
         
-        status = getattr(rec, 'status', '')
-        subj_id = getattr(rec, 'subject_id', '')
+        dt = getattr(rec, 'date', None)
+        if not dt: continue
         
-        if subj_id != 'GLOBAL':
-            attendance_map[sid]['total'] += 1
-            if status == 'Present': attendance_map[sid]['present'] += 1
-            elif status == 'OD': attendance_map[sid]['od'] += 1
-            elif status == 'ML': attendance_map[sid]['ml'] += 1
-            elif status == 'Late': attendance_map[sid]['late'] += 1
-        elif status == 'Late':
-            attendance_map[sid]['late'] += 1
+        if dt not in student_days_map[sid]:
+            student_days_map[sid][dt] = set()
+            
+        st = getattr(rec, 'status', 'Present')
+        student_days_map[sid][dt].add(st)
+        if st == 'Late':
+            student_lates_map[sid] += 1
 
     # 3. Build Results
     results = []
     for s in filtered_students:
-        stats = attendance_map.get(str(s.id), {'total': 0, 'present': 0, 'od': 0, 'ml': 0, 'late': 0})
-        t = stats['total']
-        p = stats['present']
-        od = stats['od']
-        ml = stats['ml']
-        late = stats['late']
+        s_id_str = str(s.id)
+        days = student_days_map.get(s_id_str, {})
+        total_days = len(days)
         
-        penalty = late // 3
-        eff_p = max(0, (p + od + ml + (t - (p+od+ml) if t > (p+od+ml) else 0)) - penalty) # simplified for export
-        # Wait, the logic in reports is more precise. Let's match it.
-        # Actually session lates are added to presence.
-        session_lates = late # roughly
-        # Match reports.html logic exactly
-        eff_p = max(0, (p + od + ml + 0) - penalty) # Match what I wrote in reports route
-        # Re-calc precisely
-        perc = min(100.0, round((eff_p / t * 100), 2)) if t > 0 else 0.0
+        present_count = 0
+        absent_count = 0
+        od_count = 0
+        leave_count = 0
+        
+        for dt, statuses in days.items():
+            if 'Absent' in statuses:
+                absent_count += 1
+            else:
+                present_count += 1
+                if 'OD' in statuses: od_count += 1
+                elif 'Leave' in statuses: leave_count += 1
+        
+        total_lates_all = student_lates_map.get(s_id_str, 0)
+        penalty = total_lates_all // 3
+        effective_present = max(0, present_count - penalty)
+        
+        perc = min(100.0, round((effective_present / total_days * 100), 2)) if total_days > 0 else 0.0
         
         results.append({
             'Roll No': s.roll_no,
             'Name': s.name,
             'Department': s.dept,
-            'Total Sessions': t,
-            'Present': p,
-            'OD': od,
-            'ML': ml,
-            'Late': late,
+            'Total Days': total_days,
+            'Present Days': effective_present,
+            'Absent Days': absent_count,
+            'OD': od_count,
+            'Leave': leave_count,
+            'Late': total_lates_all,
             'Penalty (Leaves)': penalty,
             'Final Percentage': f"{perc}%"
         })
@@ -1795,7 +1947,7 @@ def student_dashboard():
     total_held_overall = 0
     total_present_overall = 0
     total_od_overall = 0
-    total_ml_overall = 0
+    total_leave_overall = 0
     total_late_overall = 0
     
     # Pre-calculate global stats for the current student
@@ -1807,7 +1959,7 @@ def student_dashboard():
         total = len(subj_records)
         
         if total == 0:
-            p, od, ml, late, perc = 0, 0, 0, 0, 0.0
+            p, od, leave, late, perc = 0, 0, 0, 0, 0.0
         else:
             p_raw = len([r for r in subj_records if getattr(r, 'status', '') == 'Present'])
             
@@ -1817,26 +1969,26 @@ def student_dashboard():
             # Actually, per-subject percentage logic usually includes global OD/ML as "Present".
             
             od_subj = len([r for r in subj_records if getattr(r, 'status', '') == 'OD'])
-            ml_subj = len([r for r in subj_records if getattr(r, 'status', '') == 'ML'])
+            leave_subj = len([r for r in subj_records if getattr(r, 'status', '') == 'Leave'])
             
             # Global status counts (filtered by date if needed, but here we assume all records for the student)
             # To avoid overcounting in "overall" stats, we'll handle global stats separately outside the loop.
             od_global = len([r for r in global_records if getattr(r, 'status', '') == 'OD'])
-            ml_global = len([r for r in global_records if getattr(r, 'status', '') == 'ML'])
+            leave_global = len([r for r in global_records if getattr(r, 'status', '') == 'Leave'])
             
             late_subj = len([r for r in subj_records if getattr(r, 'status', '') == 'Late'])
             late_global = len([r for r in global_records if getattr(r, 'status', '') == 'Late'])
             
-            # effective_presence = (Present + OD + ML + Session_Lates) - (Total_Lates // 3)
+            # effective_presence = (Present + OD + Leave + Session_Lates) - (Total_Lates // 3)
             # Percentage for a subject:
             total_late_for_penalty = late_subj + late_global
-            eff_p = max(0, (p_raw + od_subj + od_global + ml_subj + ml_global + late_subj) - (total_late_for_penalty // 3))
+            eff_p = max(0, (p_raw + od_subj + od_global + leave_subj + leave_global + late_subj) - (total_late_for_penalty // 3))
             
             perc = min(100.0, round((eff_p / total * 100), 2))
             p = eff_p
             # For the table stats
             od = od_subj + od_global
-            ml = ml_subj + ml_global
+            leave = leave_subj + leave_global
             late = total_late_for_penalty
 
         subject_stats.append({
@@ -1846,30 +1998,25 @@ def student_dashboard():
             'present': p,
             'perc': perc,
             'od': od,
-            'ml': ml,
+            'leave': leave,
             'late': late
         })
         total_held_overall += total
         total_present_overall += p
 
-    # Calculate overall OD, ML, and Lates consistently
-    total_od_overall = len([r for r in all_attendance if getattr(r, 'status', '') == 'OD'])
-    total_ml_overall = len([r for r in all_attendance if getattr(r, 'status', '') == 'ML'])
-    total_late_overall = len([r for r in all_attendance if getattr(r, 'status', '') == 'Late'])
-    
-    overall_perc = min(100.0, (total_present_overall / total_held_overall * 100)) if total_held_overall > 0 else 0
-    absent_count_overall = max(0, total_held_overall - total_present_overall)
+    # Get overall stats using centralized logic (day-wise + penalties)
+    overall_res = student.get_attendance_stats()
     
     return render_template('student_dashboard.html', 
                            student=student,
                            subject_stats=subject_stats,
-                           total_held=total_held_overall,
-                           total_present=total_present_overall,
-                           total_absent=absent_count_overall,
-                           total_od=total_od_overall,
-                           total_ml=total_ml_overall,
-                           total_late=total_late_overall,
-                           overall_perc=round(overall_perc, 2))
+                           total_held=overall_res[0],
+                           total_present=overall_res[1],
+                           total_absent=overall_res[0] - overall_res[1], # Consistent with day-wise
+                           total_od=overall_res[3],
+                           total_leave=overall_res[4],
+                           total_late=overall_res[5],
+                           overall_perc=overall_res[2])
     
 @app.route('/calculator')
 @login_required
@@ -1893,29 +2040,8 @@ def attendance_calculator():
             if str(getattr(s, 'dept', '')).lower().strip() == student.dept.lower().strip()
         ]
             
-        # Calculate overall stats based ONLY on these subjects
-        all_attendance = Attendance.query.filter_by(student_id=student.id).all()
-        subj_ids = {s.id for s in subjects}
-        
-        relevant_records = [r for r in all_attendance if getattr(r, 'subject_id', '') in subj_ids]
-        global_records = [r for r in all_attendance if getattr(r, 'subject_id', '') == 'GLOBAL']
-        
-        total = len(relevant_records)
-        if total == 0:
-            stats = (0, 0, 0.0, 0, 0, 0)
-        else:
-            present_raw = len([r for r in relevant_records if getattr(r, 'status', '') == 'Present'])
-            od = len([r for r in relevant_records if getattr(r, 'status', '') == 'OD']) + \
-                 len([r for r in global_records if getattr(r, 'status', '') == 'OD'])
-            ml = len([r for r in relevant_records if getattr(r, 'status', '') == 'ML']) + \
-                 len([r for r in global_records if getattr(r, 'status', '') == 'ML'])
-            late = len([r for r in relevant_records if getattr(r, 'status', '') == 'Late']) + \
-                   len([r for r in global_records if getattr(r, 'status', '') == 'Late'])
-            
-            s_lates = len([r for r in relevant_records if getattr(r, 'status', '') == 'Late'])
-            eff_p = max(0, (present_raw + od + ml + s_lates) - (late // 3))
-            perc = round((eff_p / total * 100), 2)
-            stats = (total, eff_p, perc, od, ml, late)
+        # Use the centralized model method for consistency
+        stats = student.get_attendance_stats()
         
         return render_template('calculator.html', 
                                student=student, 
@@ -2033,7 +2159,10 @@ def delete_security(id):
 def status_portal(status_type):
     # Normalize status type for consistency
     status_type = status_type.upper()
-    if status_type not in ['OD', 'ML', 'LATE']:
+    if status_type not in ['OD', 'LEAVE', 'LATE']:
+        # Support legacy ML slug just in case but handle as LEAVE
+        if status_type == 'ML':
+            return redirect(url_for('status_portal', status_type='LEAVE', **request.args))
         abort(404)
     # Check permissions
     allowed_roles = ['admin', 'hod', 'teacher', 'in_charge']
@@ -2064,8 +2193,8 @@ def status_portal(status_type):
         classrooms = all_classrooms
         departments = all_departments
     
-    # Capitalize status for display (ML -> ML, OD -> OD, LATE -> Late)
-    display_status = status_type.title() if status_type == 'LATE' else status_type
+    # Capitalize status for display (LEAVE -> Leave, OD -> OD, LATE -> Late)
+    display_status = status_type.title() if status_type in ['LATE', 'LEAVE'] else status_type
     
     # Fetch already marked students for this date and status type
     marked_records = Attendance.query.filter_by(date=selected_date, status=display_status).all()
@@ -2174,8 +2303,11 @@ def status_portal(status_type):
 @login_required
 def mark_status_global(status_type, student_id):
     status_type = status_type.upper()
-    if status_type not in ['OD', 'ML', 'LATE']:
-        abort(404)
+    if status_type not in ['OD', 'LEAVE', 'LATE']:
+        if status_type == 'ML':
+            status_type = 'LEAVE'
+        else:
+            abort(404)
         
     # Check permissions
     allowed_roles = ['admin', 'hod', 'teacher', 'in_charge']
@@ -2193,8 +2325,8 @@ def mark_status_global(status_type, student_id):
     class_id = request.args.get('class_id', '')
     date_str = request.args.get('date') or datetime.utcnow().strftime('%Y-%m-%d')
     
-    # Ensure status is properly capitalized for database (Late, OD, ML)
-    db_status = status_type.title() if status_type == 'LATE' else status_type
+    # Ensure status is properly capitalized for database (Late, OD, Leave)
+    db_status = status_type.title() if status_type in ['LATE', 'LEAVE'] else status_type
     
     # Logic: Mark for the selected date as a GLOBAL record (Subject Independent)
     existing = Attendance.query.filter_by(

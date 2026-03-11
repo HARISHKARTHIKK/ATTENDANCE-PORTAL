@@ -250,6 +250,12 @@
                 </a>
             </div>
             <div class="nav-item">
+                <a href="{{ url_for('attendance_history') }}"
+                    class="nav-link {% if request.endpoint == 'attendance_history' %}active{% endif %}">
+                    <i class="bi bi-calendar3"></i> Daily History
+                </a>
+            </div>
+            <div class="nav-item">
                 <a href="{{ url_for('class_incharge') }}"
                     class="nav-link {% if request.endpoint == 'class_incharge' %}active{% endif %}">
                     <i class="bi bi-person-video3"></i> Class In-charge
@@ -275,9 +281,9 @@
                 </a>
             </div>
             <div class="nav-item">
-                <a href="{{ url_for('status_portal', status_type='ML') }}"
-                    class="nav-link {% if request.endpoint == 'status_portal' and request.view_args.status_type == 'ML' %}active{% endif %}">
-                    <i class="bi bi-hospital"></i> ML Portal
+                <a href="{{ url_for('status_portal', status_type='LEAVE') }}"
+                    class="nav-link {% if request.endpoint == 'status_portal' and request.view_args.status_type == 'LEAVE' %}active{% endif %}">
+                    <i class="bi bi-hospital"></i> Leave Portal
                 </a>
             </div>
             <div class="nav-item">
@@ -337,6 +343,12 @@
                     <i class="bi bi-speedometer2"></i> Dashboard
                 </a>
             </div>
+            <div class="nav-item">
+                <a href="{{ url_for('attendance_history') }}"
+                    class="nav-link {% if request.endpoint == 'attendance_history' %}active{% endif %}">
+                    <i class="bi bi-calendar3"></i> Daily History
+                </a>
+            </div>
             {% if current_user.role == 'in_charge' %}
             <div class="nav-item">
                 <a href="{{ url_for('class_incharge') }}"
@@ -370,9 +382,9 @@
                 </a>
             </div>
             <div class="nav-item">
-                <a href="{{ url_for('status_portal', status_type='ML') }}"
-                    class="nav-link {% if request.endpoint == 'status_portal' and request.view_args.status_type == 'ML' %}active{% endif %}">
-                    <i class="bi bi-hospital"></i> ML Portal
+                <a href="{{ url_for('status_portal', status_type='LEAVE') }}"
+                    class="nav-link {% if request.endpoint == 'status_portal' and request.view_args.status_type == 'LEAVE' %}active{% endif %}">
+                    <i class="bi bi-hospital"></i> Leave Portal
                 </a>
             </div>
             <div class="nav-item">
@@ -397,6 +409,12 @@
                 <a href="{{ url_for('student_dashboard') }}"
                     class="nav-link {% if request.endpoint == 'student_dashboard' %}active{% endif %}">
                     <i class="bi bi-speedometer2"></i> My Dashboard
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ url_for('attendance_history') }}"
+                    class="nav-link {% if request.endpoint == 'attendance_history' %}active{% endif %}">
+                    <i class="bi bi-calendar-check-list"></i> Attendance History
                 </a>
             </div>
             <div class="nav-item">

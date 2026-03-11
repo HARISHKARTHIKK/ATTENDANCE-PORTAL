@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+
+{% block title %}Daily Attendance History - EduGate{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-8">
+        <h2 class="fw-bold"><i class="bi bi-calendar3 me-2 text-primary"></i>Daily Attendance History</h2>
+        <p class="text-muted">Viewing attendance details for <strong>{{ date }}</strong>.</p>
+    </div>
+    <div class="col-md-4">
+        <form method="GET" action="{{ url_for('attendance_history') }}" class="d-flex gap-2">
+            <input type="date" name="date" class="form-control border-0 shadow-sm" value="{{ date }}">
+            {% if class_id %}
+            <input type="hidden" name="class_id" value="{{ class_id }}">
+            {% endif %}
+            <button type="submit" class="btn btn-primary px-4 shadow-sm">Go</button>
+        </form>
+    </div>
+</div>
+
+{% if current_user.role == 'student' %}
+<!-- Student View -->
+<div class="row g-4">
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm text-center p-4 h-100">
+            <div class="rounded-circle bg-primary-subtle text-primary mx-auto mb-3 d-flex align-items-center justify-content-center" style="width: 80px; height: 80px;">
+                <i class="bi bi-person-badge fs-1"></i>
+            </div>
+            <h4 class="fw-bold mb-1">{{ student.name }}</h4>
+            <p class="text-muted small mb-3">{{ student.roll_no }} | {{ student.dept }}</p>
+            <hr class="my-3 opacity-10">
+            <div class="row g-2">
+                <div class="col-6">
+                    <div class="p-2 bg-light rounded">
+                        <small class="d-block text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Sessions</small>
+                        <span class="h5 fw-bold mb-0">{{ history|length }}</span>
+                    </div>
+                </div>
+                <div class="col-6">
+                    {% set present_count = history | selectattr('status', 'equalto', 'Present') | list | length %}
+                    <div class="p-2 bg-success-subtle text-success rounded">
+                        <small class="d-block text-uppercase mb-1" style="font-size: 0.65rem;">Present</small>
+                        <span class="h5 fw-bold mb-0">{{ present_count }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-8">
+        <div class="card border-0 shadow-sm overflow-hidden">
+            <div class="card-header bg-white py-3">
+                <h5 class="mb-0 fw-bold">Session Details</h5>
+            </div>
+            <div class="list-group list-group-flush">
+                {% for item in history %}
+                <div class="list-group-item p-4">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="fw-bold mb-1">{{ item.subject_name }}</h6>
+                            <p class="text-muted small mb-0">Code: {{ item.subject_code }} | Marked by: {{ item.marked_by }}</p>
+                        </div>
+                        <div>
+                            {% if item.status == 'Present' %}
+                                <span class="badge bg-success rounded-pill px-3 py-2">Present</span>
+                            {% elif item.status == 'Absent' %}
+                                <span class="badge bg-danger rounded-pill px-3 py-2">Absent</span>
+                            {% elif item.status == 'Late' %}
+                                <span class="badge bg-secondary rounded-pill px-3 py-2">Late</span>
+                            {% elif item.status == 'OD' %}
+                                <span class="badge bg-info rounded-pill px-3 py-2">OD</span>
+                            {% elif item.status == 'Leave' %}
+                                <span class="badge bg-warning rounded-pill px-3 py-2">Leave</span>
+                            {% else %}
+                                <span class="badge bg-light text-dark border px-3 py-2">{{ item.status }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <div class="p-5 text-center text-muted">
+                    <i class="bi bi-calendar-x fs-1 d-block mb-3"></i>
+                    <p>No attendance records found for this date.</p>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{% else %}
+<!-- Staff View (Admin, HOD, Teacher) -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body p-4">
+        <form method="GET" action="{{ url_for('attendance_history') }}" class="row g-3">
+            <input type="hidden" name="date" value="{{ date }}">
+            <div class="col-md-8">
+                <label class="form-label small fw-bold text-muted text-uppercase">Select Class</label>
+                <select name="class_id" class="form-select bg-light border-0 py-2" onchange="this.form.submit()">
+                    <option value="">-- Choose Class --</option>
+                    {% for c in classes %}
+                    <option value="{{ c.id }}" {% if class_id == c.id|string %}selected{% endif %}>{{ c.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-4 d-flex align-items-end">
+                <a href="{{ url_for('attendance_history', date=date) }}" class="btn btn-light border py-2 w-100">Clear Selection</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if class_id %}
+<div class="card border-0 shadow-sm overflow-hidden animate__animated animate__fadeIn">
+    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+        <h5 class="mb-0 fw-bold">Class Attendance Matrix</h5>
+        <span class="badge bg-primary px-3 py-2">Date: {{ date }}</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0 text-nowrap">
+            <thead class="bg-light">
+                <tr>
+                    <th class="ps-4">Student Name</th>
+                    <th>Roll No</th>
+                    {% for sub in subjects_today %}
+                    <th class="text-center">{{ sub.name }} <br><small class="text-muted fw-normal">({{ sub.code }})</small></th>
+                    {% endfor %}
+                    {% if not subjects_today %}
+                    <th class="text-center">Status</th>
+                    {% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in students_data %}
+                <tr>
+                    <td class="ps-4">
+                        <span class="fw-semibold">{{ row.student.name }}</span>
+                    </td>
+                    <td><span class="badge bg-light text-dark border">{{ row.student.roll_no }}</span></td>
+                    {% for status in row.attendance %}
+                    <td class="text-center">
+                        {% if status == 'Present' %}
+                            <span class="text-success"><i class="bi bi-check-circle-fill"></i></span>
+                        {% elif status == 'Absent' %}
+                            <span class="text-danger"><i class="bi bi-x-circle-fill"></i></span>
+                        {% elif status == 'Late' %}
+                            <span class="text-secondary"><i class="bi bi-clock-fill"></i></span>
+                        {% elif status == 'OD' %}
+                            <span class="text-info fw-bold">OD</span>
+                        {% elif status == 'Leave' %}
+                            <span class="text-warning fw-bold">LIV</span>
+                        {% else %}
+                            <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+                    {% if not subjects_today %}
+                    <td class="text-center text-muted italic">No records for today</td>
+                    {% endif %}
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="{{ 2 + subjects_today|length }}" class="text-center py-5 text-muted">No students found in this class.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="card-footer bg-white py-3">
+        <div class="d-flex gap-4 small text-muted">
+            <span><i class="bi bi-check-circle-fill text-success me-1"></i> Present</span>
+            <span><i class="bi bi-x-circle-fill text-danger me-1"></i> Absent</span>
+            <span><i class="bi bi-clock-fill text-secondary me-1"></i> Late</span>
+            <span><span class="text-info fw-bold me-1">OD</span> On Duty</span>
+            <span><span class="text-warning fw-bold me-1">LIV</span> Leave</span>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="text-center py-5">
+    <div class="p-5 glass-panel rounded-4 d-inline-block shadow-sm">
+        <i class="bi bi-arrow-up-circle fs-1 text-primary d-block mb-3"></i>
+        <h5 class="fw-bold">Select a class to view attendance history</h5>
+        <p class="text-muted mb-0">Use the dropdown menu above to choose a class.</p>
+    </div>
+</div>
+{% endif %}
+
+{% endif %}
+
+{% endblock %}
