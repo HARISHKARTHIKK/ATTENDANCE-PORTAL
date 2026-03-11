@@ -101,6 +101,27 @@ def create_default_admin():
 # Create default admin safely
 with app.app_context():
     create_default_admin()
+    
+    # ensure all stored usernames/emails are normalized to lowercase
+    try:
+        all_users = User.query.all()
+        for u in all_users:
+            changed = False
+            if hasattr(u, 'email') and u.email:
+                normalized = u.email.strip().lower()
+                if u.email != normalized:
+                    u.email = normalized
+                    changed = True
+            if hasattr(u, 'username') and u.username:
+                normalized = u.username.strip().lower()
+                if u.username != normalized:
+                    u.username = normalized
+                    changed = True
+            if changed:
+                u.save()
+        # note: this will update any existing teacher records too
+    except Exception as e:
+        print(f"Error normalizing users: {e}")
 
 # --- Performance Caching ---
 _cache = {
@@ -133,26 +154,47 @@ def dashboard():
         return redirect(url_for('student_dashboard'))
     
     # Cache expensive counts
-    if 'global_counts' not in _cache or (datetime.now().timestamp() - _cache['global_counts']['time']) > CACHE_TIMEOUT:
-        _cache['global_counts'] = {
-            'data': {
-                'students': Student.query.count(),
-                'subjects': Subject.query.count(),
-                'classes': Classroom.query.count(),
-                'teachers': User.query.where('role', 'in', ['teacher', 'in_charge', 'hod']).count()
-            },
-            'time': datetime.now().timestamp()
-        }
+    assigned_ids = [str(x) for x in getattr(current_user, 'assigned_classes', []) if x]
     
-    counts = _cache['global_counts']['data']
-    total_students = counts['students']
-    total_subjects = counts['subjects']
-    total_classes = counts['classes']
-    total_teachers = counts['teachers']
+    if current_user.role in ['teacher', 'in_charge']:
+        # Teacher Specific Counts
+        total_students = Student.query.where('class_id', 'in', assigned_ids).count() if assigned_ids else 0
+        total_subjects = Subject.query.count() # Subjects might be common, keep for now or filter if needed
+        total_classes = len(assigned_ids)
+        total_teachers = User.query.where('role', 'in', ['teacher', 'in_charge', 'hod']).count()
+    else:
+        # Admin / HOD Full View
+        if 'global_counts' not in _cache or (datetime.now().timestamp() - _cache['global_counts']['time']) > CACHE_TIMEOUT:
+            _cache['global_counts'] = {
+                'data': {
+                    'students': Student.query.count(),
+                    'subjects': Subject.query.count(),
+                    'classes': Classroom.query.count(),
+                    'teachers': User.query.where('role', 'in', ['teacher', 'in_charge', 'hod']).count()
+                },
+                'time': datetime.now().timestamp()
+            }
+        
+        counts = _cache['global_counts']['data']
+        total_students = counts['students']
+        total_subjects = counts['subjects']
+        total_classes = counts['classes']
+        total_teachers = counts['teachers']
 
     
-    # Reverted to original logic to prevent Firestore index query freezes on localhost
-    top_students = Student.query.limit(10).all()
+    # Top Students Summary
+    if current_user.role in ['teacher', 'in_charge'] and assigned_ids:
+        all_s_pool = Student.query.where('class_id', 'in', assigned_ids).all()
+        # Sort by attendance percentage (expensive, limited to top 10)
+        scored_students = []
+        for s in all_s_pool:
+            stats = s.get_attendance_stats()
+            scored_students.append((s, stats[2])) # student, perc
+        scored_students.sort(key=lambda x: x[1], reverse=True)
+        top_students = [x[0] for x in scored_students[:10]]
+    else:
+        top_students = Student.query.limit(10).all()
+
     report_data = []
     for s in top_students:
         stats = s.get_attendance_stats()
@@ -242,19 +284,31 @@ def dashboard():
 
     # Department Wise stats
     all_departments = Department.query.all()
+    
+    # Filter departments for teachers
+    if current_user.role in ['teacher', 'in_charge'] and assigned_ids:
+        assigned_cls = [c for c in get_cached_metadata('classrooms', Classroom) if str(c.id) in assigned_ids]
+        assigned_dept_names = {str(getattr(c, 'dept', '')).lower().strip() for c in assigned_cls}
+        departments_to_show = [d for d in all_departments if str(d.name).lower().strip() in assigned_dept_names]
+    else:
+        departments_to_show = all_departments
+
     dept_stats = []
+    
+    # Use cached counts correctly based on visibility
+    for d in departments_to_show:
+        if current_user.role in ['teacher', 'in_charge'] and assigned_ids:
+            # For teacher, "Total" in dept only counts students in THEIR assigned classes within that dept
+            total_dept_students = Student.query.filter_by(dept=d.name).where('class_id', 'in', assigned_ids).count()
+        else:
+            # For HOD/Admin, show overall dept count
+            if 'dept_counts' not in _cache or (datetime.now().timestamp() - _cache['dept_counts']['time']) > CACHE_TIMEOUT:
+                dept_counts = {}
+                for dd in all_departments:
+                    dept_counts[dd.name] = Student.query.filter_by(dept=dd.name).count()
+                _cache['dept_counts'] = {'data': dept_counts, 'time': datetime.now().timestamp()}
+            total_dept_students = _cache['dept_counts']['data'].get(d.name, 0)
 
-    # Cache department student counts to avoid N sequential queries
-    if 'dept_counts' not in _cache or (datetime.now().timestamp() - _cache['dept_counts']['time']) > CACHE_TIMEOUT:
-        dept_counts = {}
-        for d in all_departments:
-            dept_counts[d.name] = Student.query.filter_by(dept=d.name).count()
-        _cache['dept_counts'] = {'data': dept_counts, 'time': datetime.now().timestamp()}
-        
-    for d in all_departments:
-        total_dept_students = _cache['dept_counts']['data'].get(d.name, 0)
-
-        
         present_today = 0
         absent_today = 0
         late_today = 0
@@ -263,6 +317,12 @@ def dashboard():
             sid = str(getattr(rec, 'student_id', ''))
             s_dept = str(attendee_dept_map.get(sid, '')).lower().strip()
             if sid and s_dept == str(d.name).lower().strip():
+                # For teacher, double check the student belongs to their classes
+                if current_user.role in ['teacher', 'in_charge'] and assigned_ids:
+                    s_obj = all_students_map.get(sid) if 'all_students_map' in locals() else Student.query.get(sid)
+                    if not s_obj or str(getattr(s_obj, 'class_id', '')) not in assigned_ids:
+                        continue
+                
                 status = getattr(rec, 'status', '')
                 if status == 'Present':
                     present_today += 1
@@ -280,10 +340,20 @@ def dashboard():
             'late': late_today
         })
 
+    # Calculate Today's Attendance Stats
+    total_present_today = 0
+    for rec in attendance_today:
+        if getattr(rec, 'status', '') == 'Present':
+            total_present_today += 1
+            
+    today_attendance_perc = 0
+    if total_students > 0:
+        today_attendance_perc = round((total_present_today / total_students) * 100, 1)
+
     return render_template('dashboard.html', 
                            total_students=total_students, 
-                           total_subjects=total_subjects,
-                           total_classes=total_classes,
+                           total_present_today=total_present_today,
+                           today_attendance_perc=today_attendance_perc,
                            total_teachers=total_teachers,
                            report_data=report_data,
                            in_charge_data=in_charge_data,
@@ -294,7 +364,8 @@ def dashboard():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form.get('username')
+        # normalize input to avoid case/spacing issues
+        username = request.form.get('username', '').strip().lower()
         password = request.form.get('password')
         
         # 1. Check for missing fields
@@ -303,8 +374,17 @@ def login():
             return render_template('login.html')
 
         try:
-            # 2. Fetch user safely
+            # 2. Fetch user safely (try both username and email fields)
             user = User.query.filter_by(username=username).first()
+            if not user:
+                # allow login using email if someone types it
+                user = User.query.filter_by(email=username).first()
+            
+            # debug output to console (helpful during development)
+            if not user:
+                print(f"Login attempt: no user found for '{username}'")
+            else:
+                print(f"Login attempt: found user id={user.id} username={user.username} role={user.role}")
             
             # 3. Check existence and password safely
             if user and check_password_hash(getattr(user, 'password', ''), password):
@@ -322,7 +402,11 @@ def login():
                     return redirect(url_for('security_portal'))
                 return redirect(url_for('student_dashboard'))
             else:
-                flash('Invalid username or password', 'danger')
+                # provide more specific feedback
+                if user is None:
+                    flash('User not found. Please contact administrator.', 'danger')
+                else:
+                    flash('Incorrect password. Please try again.', 'danger')
         except Exception as e:
             print(f"Login error: {e}")
             flash('An internal error occurred. Please try again later.', 'danger')
@@ -344,7 +428,7 @@ def teachers():
     if request.method == 'POST':
         name = request.form.get('name')
         email = request.form.get('email')
-        password = request.form.get('password')
+        password = request.form.get('password') or 'teacher123'
         
         existing_user = User.query.filter_by(email=email).first()
         if existing_user:
@@ -352,7 +436,9 @@ def teachers():
         else:
             phone = request.form.get('phone')
             hashed_pw = generate_password_hash(password, method='pbkdf2:sha256')
-            new_teacher = User(name=name, email=email, username=email, password=hashed_pw, role='teacher', phone=phone)
+            # store credentials normalized to lowercase to avoid case mismatch
+            normalized_email = email.strip().lower()
+            new_teacher = User(name=name, email=normalized_email, username=normalized_email, password=hashed_pw, role='teacher', phone=phone)
             new_teacher.save()
             flash(f'Teacher {name} added successfully!', 'success')
         return redirect(url_for('teachers'))
@@ -363,6 +449,84 @@ def teachers():
     all_classes = Classroom.query.all()
     class_map = {str(c.id): c.name for c in all_classes}
     return render_template('teachers.html', teachers=all_teachers, class_map=class_map)
+
+@app.route('/teachers/bulk_upload', methods=['POST'])
+@login_required
+@admin_required
+def bulk_upload_teachers():
+    if 'file' not in request.files:
+        flash('No file part', 'danger')
+        return redirect(url_for('teachers'))
+    
+    file = request.files['file']
+    if file.filename == '':
+        flash('No selected file', 'danger')
+        return redirect(url_for('teachers'))
+    
+    if file and (file.filename.endswith('.csv') or file.filename.endswith('.xlsx')):
+        try:
+            if file.filename.endswith('.csv'):
+                try:
+                    content = file.stream.read().decode("UTF-8")
+                except UnicodeDecodeError:
+                    file.stream.seek(0)
+                    content = file.stream.read().decode("latin1")
+                stream = io.StringIO(content, newline=None)
+                df = pd.read_csv(stream)
+            else:
+                df = pd.read_excel(file)
+            
+            df.columns = [str(c).strip() for c in df.columns]
+            required_cols = ['Name', 'Email']
+            for col in required_cols:
+                if col not in df.columns:
+                    flash(f'Missing required column: {col}', 'danger')
+                    return redirect(url_for('teachers'))
+            
+            existing_users = {str(u.email).strip().lower() for u in User.query.all()}
+            all_classes_map = {str(c.name).strip().lower(): str(c.id) for c in Classroom.query.all()}
+            success_count = 0
+            
+            for _, row in df.iterrows():
+                name = str(row['Name']).strip()
+                email = str(row['Email']).strip().lower()
+                phone = str(row.get('Phone', '')).strip() if 'Phone' in df.columns else None
+                password = str(row.get('Password', 'teacher123')).strip()
+                classes_str = str(row.get('Classes', '')).strip() if 'Classes' in df.columns else ""
+                
+                # Resolve class names to IDs
+                assigned_classes = []
+                if classes_str and classes_str.lower() != 'nan':
+                    # Support comma or semicolon separated names
+                    class_names = [n.strip().lower() for n in classes_str.replace(';', ',').split(',') if n.strip()]
+                    for name_item in class_names:
+                        cid = all_classes_map.get(name_item)
+                        if cid:
+                            assigned_classes.append(cid)
+                
+                if not name or not email or email in existing_users:
+                    continue
+                
+                hashed_pw = generate_password_hash(password, method='pbkdf2:sha256')
+                new_teacher = User(
+                    name=name, 
+                    email=email, 
+                    # normalize again when editing
+                    username=email.strip().lower(), 
+                    password=hashed_pw, 
+                    role='teacher', 
+                    phone=phone,
+                    assigned_classes=assigned_classes
+                )
+                new_teacher.save()
+                existing_users.add(email)
+                success_count += 1
+                
+            flash(f'Successfully imported {success_count} teachers!', 'success')
+        except Exception as e:
+            flash(f'Error processing file: {e}', 'danger')
+            
+    return redirect(url_for('teachers'))
 
 @app.route('/classes', methods=['GET', 'POST'])
 @login_required
@@ -560,7 +724,10 @@ def api_profile():
     if request.method == 'POST':
         user = current_user
         user.name = request.form.get('name')
-        user.email = request.form.get('email')
+        # normalize email/username when changed
+        new_email = request.form.get('email', '').strip().lower()
+        user.email = new_email
+        user.username = new_email
         user.phone = request.form.get('phone')
         if request.form.get('password'):
             user.password = generate_password_hash(request.form.get('password'), method='pbkdf2:sha256')
@@ -868,6 +1035,24 @@ def download_student_template():
         download_name='student_template.csv'
     )
 
+@app.route('/admin/teachers/template')
+@login_required
+@admin_required
+def download_teacher_template():
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['Name', 'Email', 'Phone', 'Password', 'Classes'])
+    writer.writerow(['Dr. Ramesh', 'ramesh@college.edu', '9876543210', 'staff123', 'I-CSC, II-CSC'])
+    writer.writerow(['Ms. Priya', 'priya@college.edu', '9876543211', 'priya2024', 'I-BCOM'])
+    
+    output.seek(0)
+    return send_file(
+        io.BytesIO(output.getvalue().encode()),
+        mimetype='text/csv',
+        as_attachment=True,
+        download_name='teacher_template.csv'
+    )
+
 # -- Subject Management --
 @app.route('/subjects', methods=['GET', 'POST'])
 @login_required
@@ -896,6 +1081,87 @@ def subjects():
 
     return render_template('subjects.html', subjects=all_subjects, teachers=all_teachers, 
                           selected_semester=selected_semester, departments=departments)
+
+@app.route('/subjects/bulk_upload', methods=['POST'])
+@login_required
+@admin_required
+def bulk_upload_subjects():
+    if 'file' not in request.files:
+        flash('No file part', 'danger')
+        return redirect(url_for('subjects'))
+    
+    file = request.files['file']
+    if file.filename == '':
+        flash('No selected file', 'danger')
+        return redirect(url_for('subjects'))
+    
+    if file and (file.filename.endswith('.csv') or file.filename.endswith('.xlsx')):
+        try:
+            if file.filename.endswith('.csv'):
+                try:
+                    content = file.stream.read().decode("UTF-8")
+                except UnicodeDecodeError:
+                    file.stream.seek(0)
+                    content = file.stream.read().decode("latin1")
+                stream = io.StringIO(content, newline=None)
+                df = pd.read_csv(stream)
+            else:
+                df = pd.read_excel(file)
+            
+            df.columns = [str(c).strip() for c in df.columns]
+            required_cols = ['Name', 'Code', 'Dept', 'Semester']
+            for col in required_cols:
+                if col not in df.columns:
+                    flash(f'Missing required column: {col}', 'danger')
+                    return redirect(url_for('subjects'))
+            
+            teachers_map = {str(u.email).strip().lower(): u.id for u in User.query.filter_by(role='teacher').all()}
+            success_count = 0
+            
+            for _, row in df.iterrows():
+                name = str(row['Name']).strip()
+                code = str(row['Code']).strip()
+                dept = str(row['Dept']).strip()
+                semester = str(row['Semester']).strip()
+                teacher_email = str(row.get('Teacher_Email', '')).strip().lower()
+                
+                if not name or not code:
+                    continue
+                
+                teacher_id = teachers_map.get(teacher_email)
+                new_subject = Subject(
+                    name=name, 
+                    code=code, 
+                    dept=dept, 
+                    semester=semester, 
+                    teacher_id=teacher_id
+                )
+                new_subject.save()
+                success_count += 1
+                
+            flash(f'Successfully imported {success_count} subjects!', 'success')
+        except Exception as e:
+            flash(f'Error processing file: {e}', 'danger')
+            
+    return redirect(url_for('subjects'))
+
+@app.route('/admin/subjects/template')
+@login_required
+@admin_required
+def download_subject_template():
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['Name', 'Code', 'Dept', 'Semester', 'Teacher_Email'])
+    writer.writerow(['Data Structures', 'CS101', 'Computer Science', '3', 'ramesh@college.edu'])
+    writer.writerow(['Business Math', 'BM202', 'B.COM', '2', 'priya@college.edu'])
+    
+    output.seek(0)
+    return send_file(
+        io.BytesIO(output.getvalue().encode()),
+        mimetype='text/csv',
+        as_attachment=True,
+        download_name='subject_template.csv'
+    )
 
 @app.route('/delete_subject/<id>')
 
@@ -1657,24 +1923,40 @@ def status_portal(status_type):
     status_type = status_type.upper()
     if status_type not in ['OD', 'ML', 'LATE']:
         abort(404)
-    
     # Check permissions
+    allowed_roles = ['admin', 'hod', 'teacher', 'in_charge']
     if status_type == 'LATE':
-        if current_user.role not in ['admin', 'hod', 'security']:
-            flash('Unauthorized Access!', 'danger')
-            return redirect(url_for('dashboard'))
-    else: # OD or ML
-        if current_user.role not in ['admin', 'hod']:
-            flash('Unauthorized Access!', 'danger')
-            return redirect(url_for('dashboard'))
+        allowed_roles.append('security')
+        
+    if current_user.role not in allowed_roles:
+        flash('Unauthorized Access!', 'danger')
+        return redirect(url_for('dashboard'))
 
     search_query = request.args.get('search', '')
     dept_filter = request.args.get('dept', '')
     class_filter = request.args.get('class_id', '')
     selected_date = request.args.get('date', datetime.utcnow().strftime('%Y-%m-%d'))
     
+    # Metadata fetching
+    all_departments = get_cached_metadata('departments', Department)
+    all_classrooms = get_cached_metadata('classrooms', Classroom)
+    
+    # Filter metadata for teachers/in-charges
+    assigned_class_ids = []
+    if current_user.role in ['teacher', 'in_charge']:
+        assigned_class_ids = [str(x) for x in getattr(current_user, 'assigned_classes', []) if x]
+        classrooms = [c for c in all_classrooms if str(c.id) in assigned_class_ids]
+        assigned_depts = {str(getattr(c, 'dept', '')).lower().strip() for c in classrooms}
+        departments = [d for d in all_departments if str(getattr(d, 'name', '')).lower().strip() in assigned_depts]
+    else:
+        classrooms = all_classrooms
+        departments = all_departments
+    
+    # Capitalize status for display (ML -> ML, OD -> OD, LATE -> Late)
+    display_status = status_type.title() if status_type == 'LATE' else status_type
+    
     # Fetch already marked students for this date and status type
-    marked_records = Attendance.query.filter_by(date=selected_date, status=status_type).all()
+    marked_records = Attendance.query.filter_by(date=selected_date, status=display_status).all()
     marked_student_ids = [str(getattr(r, 'student_id', '')) for r in marked_records]
     
     # Fetch all students and filter in Python for robustness (handling case/whitespace)
@@ -1684,7 +1966,18 @@ def status_portal(status_type):
     if search_query or dept_filter or class_filter:
         # Optimization: If class_filter is present, only fetch students of that class
         if class_filter:
-            pool = Student.query.filter_by(class_id=class_filter).all()
+            # Security: If teacher, ensure they only search their assigned classes
+            if assigned_class_ids and str(class_filter) not in assigned_class_ids:
+                pool = []
+            else:
+                pool = Student.query.filter_by(class_id=class_filter).all()
+        elif assigned_class_ids:
+            # Teacher searching globally - restrict pool to their assigned classes
+            # Use query if under 30 classes, else filter in Python
+            if len(assigned_class_ids) <= 30:
+                pool = Student.query.where('class_id', 'in', assigned_class_ids).all()
+            else:
+                pool = [s for s in Student.query.all() if str(getattr(s, 'class_id', '')) in assigned_class_ids]
         else:
             pool = Student.query.all()
             
@@ -1708,17 +2001,50 @@ def status_portal(status_type):
         # Default view: show already marked students
         if marked_student_ids:
             all_s = Student.query.all()
-            students = [s for s in all_s if str(s.id) in marked_student_ids]
+            for s in all_s:
+                sid = str(s.id)
+                if sid in marked_student_ids:
+                    # Filter for teachers: only show their assigned students in default view too
+                    s_class_id = str(getattr(s, 'class_id', ''))
+                    if assigned_class_ids and s_class_id not in assigned_class_ids:
+                        continue
+                    students.append(s)
     
     # Sort students: Dept wise then by roll no
     students.sort(key=lambda x: (str(getattr(x, 'dept', '')).lower(), str(getattr(x, 'roll_no', 'zzzz')).lower()))
 
-    departments = get_cached_metadata('departments', Department)
-    classrooms = get_cached_metadata('classrooms', Classroom)
+    # Fetch history logs (Last 30 Days)
+    from datetime import timedelta
+    one_month_ago = (datetime.utcnow() - timedelta(days=30)).strftime('%Y-%m-%d')
+    db_status = display_status
     
-    # Capitalize status for display (ML -> ML, OD -> OD, LATE -> Late)
-    display_status = status_type.title() if status_type == 'LATE' else status_type
+    history_records = Attendance.query.filter_by(status=db_status).where('date', '>=', one_month_ago).all()
+    history_records.sort(key=lambda x: getattr(x, 'date', ''), reverse=True)
     
+    # Resolve student info for history
+    history_data = []
+    # Pre-fetch students and classes to avoid N queries
+    all_students_map = {str(s.id): s for s in Student.query.all()}
+    all_classes_map = {str(c.id): getattr(c, 'name', 'Unknown') for c in all_classrooms}
+    
+    for rec in history_records:
+        sid = str(getattr(rec, 'student_id', ''))
+        student = all_students_map.get(sid)
+        if student:
+            # Filter history for teachers: only show records of their assigned classes
+            s_class_id = str(getattr(student, 'class_id', ''))
+            if assigned_class_ids and s_class_id not in assigned_class_ids:
+                continue
+                
+            history_data.append({
+                'name': student.name,
+                'roll_no': student.roll_no,
+                'dept': student.dept,
+                'class_name': all_classes_map.get(s_class_id, 'Unknown'),
+                'date': rec.date,
+                'id': rec.id
+            })
+
     return render_template('status_portal.html', 
                          students=students, 
                          search_query=search_query, 
@@ -1729,7 +2055,8 @@ def status_portal(status_type):
                          dept_filter=dept_filter,
                          class_filter=class_filter,
                          selected_date=selected_date,
-                         marked_student_ids=marked_student_ids)
+                         marked_student_ids=marked_student_ids,
+                         history_data=history_data[:100]) # Limit to 100 recent for performance
 
 @app.route('/mark_status_global/<status_type>/<student_id>', methods=['POST'])
 @login_required
@@ -1739,12 +2066,12 @@ def mark_status_global(status_type, student_id):
         abort(404)
         
     # Check permissions
+    allowed_roles = ['admin', 'hod', 'teacher', 'in_charge']
     if status_type == 'LATE':
-        if current_user.role not in ['admin', 'hod', 'security']:
-            abort(403)
-    else: # OD or ML
-        if current_user.role not in ['admin', 'hod']:
-            abort(403)
+        allowed_roles.append('security')
+        
+    if current_user.role not in allowed_roles:
+        abort(403)
 
     student = Student.query.get_or_404(student_id)
     

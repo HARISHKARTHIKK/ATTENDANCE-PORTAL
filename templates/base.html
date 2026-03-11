@@ -349,6 +349,24 @@
                     <i class="bi bi-calculator"></i> Calculator
                 </a>
             </div>
+            <div class="nav-item">
+                <a href="{{ url_for('status_portal', status_type='OD') }}"
+                    class="nav-link {% if request.endpoint == 'status_portal' and request.view_args.status_type == 'OD' %}active{% endif %}">
+                    <i class="bi bi-briefcase"></i> OD Portal
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ url_for('status_portal', status_type='ML') }}"
+                    class="nav-link {% if request.endpoint == 'status_portal' and request.view_args.status_type == 'ML' %}active{% endif %}">
+                    <i class="bi bi-hospital"></i> ML Portal
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ url_for('status_portal', status_type='LATE') }}"
+                    class="nav-link {% if request.endpoint == 'status_portal' and request.view_args.status_type == 'LATE' %}active{% endif %}">
+                    <i class="bi bi-clock-history"></i> Late Portal
+                </a>
+            </div>
 
             {% elif current_user.role == 'security' %}
             <!-- Security Links -->
