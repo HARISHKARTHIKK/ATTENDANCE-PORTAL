@@ -9,11 +9,11 @@
         <p class="text-muted">Manage student enrollment and class assignments.</p>
     </div>
     {% if current_user.role == 'admin' %}
-    <div class="col-md-6 text-md-end">
-        <button class="btn btn-outline-primary me-2 shadow-sm" data-bs-toggle="modal" data-bs-target="#bulkUploadModal">
+    <div class="col-md-6 text-center text-md-end mt-3 mt-md-0">
+        <button class="btn btn-outline-primary me-2 mb-2 mb-md-0 shadow-sm" data-bs-toggle="modal" data-bs-target="#bulkUploadModal">
             <i class="bi bi-file-earmark-arrow-up me-2"></i>Bulk Upload
         </button>
-        <button class="btn btn-primary shadow-sm" data-bs-toggle="modal" data-bs-target="#addStudentModal">
+        <button class="btn btn-primary shadow-sm mb-2 mb-md-0" data-bs-toggle="modal" data-bs-target="#addStudentModal">
             <i class="bi bi-person-plus me-2"></i>Add New Student
         </button>
     </div>

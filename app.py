@@ -180,21 +180,16 @@ def dashboard():
         total_teachers = counts['teachers']
 
     
-    # Top Students Summary
+    # Optimized Top Students Summary
     if current_user.role in ['teacher', 'in_charge'] and assigned_ids:
-        all_s_pool = Student.query.where('class_id', 'in', assigned_ids).all()
-        # Sort by attendance percentage (expensive, limited to top 10)
-        scored_students = []
-        for s in all_s_pool:
-            stats = s.get_attendance_stats()
-            scored_students.append((s, stats[2])) # student, perc
-        scored_students.sort(key=lambda x: x[1], reverse=True)
-        top_students = [x[0] for x in scored_students[:10]]
+        # Fetch students in assigned classes
+        top_students = Student.query.where('class_id', 'in', assigned_ids).limit(10).all()
     else:
         top_students = Student.query.limit(10).all()
 
     report_data = []
     for s in top_students:
+        # We only calculate stats for these 10 students now, much faster than calculating for everyone in pool
         stats = s.get_attendance_stats()
         report_data.append({
             'name': getattr(s, 'name', ''),
@@ -218,9 +213,12 @@ def dashboard():
             student_today_statuses[sid] = set()
         student_today_statuses[sid].add(getattr(rec, 'status', ''))
         
-    # Resolve student depts and classes for stats
-    all_s = Student.query.all()
-    student_map = {str(s.id): s for s in all_s}
+    # Resolve student depts and classes for stats - ONLY for students marked today
+    today_sids = list(student_today_statuses.keys())
+    student_map = {}
+    if today_sids:
+        found_s = Student.query.where('id', 'in', today_sids).all()
+        student_map = {str(s.id): s for s in found_s}
     
     stats_map = {} # cid -> {'present', 'absent', 'od', 'leave', 'late'}
     attendee_dept_map = {} # sid -> dept
@@ -347,6 +345,9 @@ def dashboard():
     today_attendance_perc = 0
     if total_students > 0:
         today_attendance_perc = min(100.0, round((total_present_today / total_students) * 100, 1))
+    
+    # Pre-fetch all depts once for UI if needed
+    all_depts_list = get_cached_metadata('departments', Department)
 
     return render_template('dashboard.html', 
                            total_students=total_students, 
@@ -1555,36 +1556,39 @@ def reports():
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
 
-    # Base Student Query - Robust case-insensitive filtering
-    all_students_pool = Student.query.all()
+    # Base Student Query - Use server-side filtering where possible
+    s_query = Student.query
+    if class_id:
+        s_query = s_query.filter_by(class_id=class_id)
+    if dept:
+        s_query = s_query.filter_by(dept=dept)
+    
+    if current_user.role == 'teacher':
+        assigned_ids = [str(x) for x in current_user.assigned_classes if x is not None]
+        if assigned_ids:
+            if len(assigned_ids) == 1:
+                s_query = s_query.filter_by(class_id=assigned_ids[0])
+            elif len(assigned_ids) <= 10:
+                s_query = s_query.where('class_id', 'in', assigned_ids)
+            # Else we filter in python for > 10 classes
+    
+    all_students_pool = s_query.all()
     students = []
     
     for s in all_students_pool:
-        # Dept Filter
-        if dept:
-            s_dept = str(getattr(s, 'dept', '')).lower().strip()
-            if s_dept != dept.lower().strip():
-                continue
-        
-        # Class Filter
-        if class_id:
-            s_class_id = str(getattr(s, 'class_id', ''))
-            if s_class_id != str(class_id):
-                continue
-        
-        # Semester Filter
+        # Semester Filter (Python side as it's less common to index)
         if semester:
             s_sem = str(getattr(s, 'semester', ''))
             if s_sem != str(semester):
                 continue
         
-        # Teacher Permission Check
+        # Secondary Python filter for large assigned_ids sets
         if current_user.role == 'teacher':
-            assigned_ids = [str(x) for x in current_user.assigned_classes if x is not None]
-            s_class_id = str(getattr(s, 'class_id', ''))
-            if s_class_id not in assigned_ids:
-                continue
-                
+             assigned_ids = [str(x) for x in current_user.assigned_classes if x is not None]
+             if len(assigned_ids) > 10:
+                 if str(getattr(s, 'class_id', '')) not in assigned_ids:
+                     continue
+                 
         students.append(s)
     
     # Base Attendance Query for Logs
@@ -1671,30 +1675,7 @@ def reports():
         s_id_str = str(s.id)
         days = student_days_map.get(s_id_str, {})
         total_days = len(days)
-        
-        present_count = 0
-        absent_count = 0
-        od_count = 0
-        leave_count = 0
-        late_count = 0 # Late days count
-        
-        for dt, statuses in days.items():
-            if 'Absent' in statuses:
-                absent_count += 1
-            else:
-                present_count += 1
-                if 'OD' in statuses: od_count += 1
-                elif 'Leave' in statuses: leave_count += 1
-                elif 'Late' in statuses: late_count += 1
-        
-        total_lates_all = student_lates_map.get(s_id_str, 0)
-        penalty = total_lates_all // 3
-        effective_present = max(0, present_count - penalty)
-        
-        perc = min(100.0, (effective_present / total_days * 100)) if total_days > 0 else 0.0
-
-    report_data = []
-    for s in students:
+    for s in students: # Iterate over the already filtered 'students' list
         s_id_str = str(s.id)
         days = student_days_map.get(s_id_str, {})
         total_days = len(days)

@@ -9,12 +9,12 @@
         <p class="text-muted">Register and manage subject teachers. Assign classes to restrict their view.</p>
     </div>
     {% if current_user.role == 'admin' %}
-    <div class="col-md-6 text-md-end">
-        <button class="btn btn-outline-primary shadow-sm me-2" data-bs-toggle="modal"
+    <div class="col-md-6 text-center text-md-end mt-3 mt-md-0">
+        <button class="btn btn-outline-primary shadow-sm me-2 mb-2 mb-md-0" data-bs-toggle="modal"
             data-bs-target="#importTeachersModal">
             <i class="bi bi-file-earmark-arrow-up me-2"></i>Import Teachers
         </button>
-        <button class="btn btn-primary shadow-sm" data-bs-toggle="modal" data-bs-target="#addTeacherModal">
+        <button class="btn btn-primary shadow-sm mb-2 mb-md-0" data-bs-toggle="modal" data-bs-target="#addTeacherModal">
             <i class="bi bi-person-plus me-2"></i>Add New Teacher
         </button>
     </div>
