@@ -17,3 +17,7 @@ instance/
 # OS
 .DS_Store
 serviceAccountKey.json
+
+.venv/
+__pycache__/
+serviceAccountKey.json

@@ -431,7 +431,7 @@ def teachers():
         password = request.form.get('password') or 'teacher123'
         
         existing_user = User.query.filter_by(email=email).first()
-        if existing_user:
+        if existing_user:P
             flash('Email already exists!', 'danger')
         else:
             phone = request.form.get('phone')
