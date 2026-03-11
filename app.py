@@ -159,8 +159,6 @@ def dashboard():
     if current_user.role in ['teacher', 'in_charge']:
         # Teacher Specific Counts
         total_students = Student.query.where('class_id', 'in', assigned_ids).count() if assigned_ids else 0
-        total_subjects = Subject.query.count() # Subjects might be common, keep for now or filter if needed
-        total_classes = len(assigned_ids)
         total_teachers = User.query.where('role', 'in', ['teacher', 'in_charge', 'hod']).count()
     else:
         # Admin / HOD Full View
@@ -348,7 +346,7 @@ def dashboard():
             
     today_attendance_perc = 0
     if total_students > 0:
-        today_attendance_perc = round((total_present_today / total_students) * 100, 1)
+        today_attendance_perc = min(100.0, round((total_present_today / total_students) * 100, 1))
 
     return render_template('dashboard.html', 
                            total_students=total_students, 
@@ -360,6 +358,103 @@ def dashboard():
                            hod_summary=hod_summary,
                            dept_stats=dept_stats,
                            today_date=today.strftime('%d %b, %Y'))
+
+@app.route('/class_incharge')
+@login_required
+def class_incharge():
+    if current_user.role not in ['admin', 'hod', 'in_charge']:
+        flash('Unauthorized Access!', 'danger')
+        return redirect(url_for('dashboard'))
+        
+    assigned_ids = [str(x) for x in getattr(current_user, 'assigned_classes', []) if x]
+    
+    # If admin/hod and no class selected, show first class or selection
+    selected_class_id = request.args.get('class_id')
+    
+    if current_user.role in ['admin', 'hod']:
+        all_classes = Classroom.query.all()
+        if not selected_class_id and all_classes:
+            selected_class_id = str(all_classes[0].id)
+    else:
+        if not assigned_ids:
+            flash('No class assigned to you as In-charge.', 'warning')
+            return redirect(url_for('dashboard'))
+        if not selected_class_id:
+            selected_class_id = assigned_ids[0]
+        elif selected_class_id not in assigned_ids:
+            flash('Unauthorized Access to this class.', 'danger')
+            return redirect(url_for('dashboard'))
+
+    if not selected_class_id:
+        flash('No classes available.', 'info')
+        return redirect(url_for('dashboard'))
+
+    cls = Classroom.query.get_or_404(selected_class_id)
+    students = Student.query.filter_by(class_id=selected_class_id).all()
+    
+    # Sort students by roll no
+    students.sort(key=lambda x: str(x.roll_no).lower())
+    
+    # Fetch subjects for this class (by Dept and Semester)
+    class_dept = getattr(cls, 'dept', '')
+    class_semester = str(getattr(cls, 'current_semester', getattr(cls, 'semester', '')))
+    
+    class_subjects = []
+    if class_dept and class_semester:
+        class_subjects = Subject.query.filter_by(dept=class_dept, semester=class_semester).all()
+        class_subjects.sort(key=lambda x: str(getattr(x, 'name', '')).lower())
+
+    # Today's stats
+    today = datetime.utcnow().date()
+    today_dt = datetime.combine(today, datetime.min.time())
+    attendance_today = Attendance.query.filter_by(date=today_dt, class_id=selected_class_id).all()
+    
+    stats = {'present': 0, 'absent': 0, 'od': 0, 'ml': 0, 'late': 0}
+    for rec in attendance_today:
+        status = getattr(rec, 'status', '').lower()
+        if status in stats:
+            stats[status] += 1
+        
+    # Overall student stats + Subject-wise stats
+    rep_data = []
+    
+    # Pre-map today's attendance for quick lookup
+    today_status_map = {} # {student_id: {subject_id: status}}
+    for rec in attendance_today:
+        sid = str(getattr(rec, 'student_id', ''))
+        subid = str(getattr(rec, 'subject_id', ''))
+        status = getattr(rec, 'status', '').strip()
+        if sid not in today_status_map:
+            today_status_map[sid] = {}
+        today_status_map[sid][subid] = status
+
+    for s in students:
+        overall_res = s.get_attendance_stats()
+        
+        # Determine subject-wise status for today
+        subject_today_data = {}
+        s_today_recs = today_status_map.get(str(s.id), {})
+        
+        for sub in class_subjects:
+            subject_today_data[sub.id] = s_today_recs.get(sub.id, '-')
+
+        rep_data.append({
+            'student': s,
+            'total': overall_res[0],
+            'present': overall_res[1],
+            'percentage': overall_res[2],
+            'od': overall_res[3],
+            'ml': overall_res[4],
+            'late': overall_res[5],
+            'subject_today': subject_today_data
+        })
+
+    return render_template('class_incharge.html', 
+                           cls=cls, 
+                           students=rep_data, 
+                           stats=stats,
+                           subjects=class_subjects,
+                           all_classes=Classroom.query.all() if current_user.role in ['admin', 'hod'] else None)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -429,21 +524,22 @@ def teachers():
         name = request.form.get('name')
         email = request.form.get('email')
         password = request.form.get('password') or 'teacher123'
+        role = request.form.get('role', 'teacher')
         
         existing_user = User.query.filter_by(email=email).first()
-        if existing_user:P
+        if existing_user:
             flash('Email already exists!', 'danger')
         else:
             phone = request.form.get('phone')
             hashed_pw = generate_password_hash(password, method='pbkdf2:sha256')
             # store credentials normalized to lowercase to avoid case mismatch
             normalized_email = email.strip().lower()
-            new_teacher = User(name=name, email=normalized_email, username=normalized_email, password=hashed_pw, role='teacher', phone=phone)
+            new_teacher = User(name=name, email=normalized_email, username=normalized_email, password=hashed_pw, role=role, phone=phone)
             new_teacher.save()
             flash(f'Teacher {name} added successfully!', 'success')
         return redirect(url_for('teachers'))
     
-    all_teachers = User.query.filter_by(role='teacher').all()
+    all_teachers = User.query.where('role', 'in', ['teacher', 'in_charge']).all()
     # Sort teachers by name
     all_teachers.sort(key=lambda x: x.name.lower())
     all_classes = Classroom.query.all()
@@ -511,7 +607,6 @@ def bulk_upload_teachers():
                 new_teacher = User(
                     name=name, 
                     email=email, 
-                    # normalize again when editing
                     username=email.strip().lower(), 
                     password=hashed_pw, 
                     role='teacher', 
@@ -668,7 +763,8 @@ def edit_teacher(id):
         'name': request.form.get('name'),
         'email': request.form.get('email'),
         'username': request.form.get('email'),
-        'phone': request.form.get('phone')
+        'phone': request.form.get('phone'),
+        'role': request.form.get('role', teacher.role)
     }
     if request.form.get('password'):
         update_data['password'] = generate_password_hash(request.form.get('password'), method='pbkdf2:sha256')
@@ -1070,17 +1166,33 @@ def subjects():
         flash('Subject added successfully!', 'success')
         return redirect(url_for('subjects'))
     
-    selected_semester = request.args.get('semester', type=int)
+    selected_semester = request.args.get('semester')
+    selected_dept = request.args.get('dept')
+    
     query = Subject.query
     if selected_semester:
         query = query.filter_by(semester=selected_semester)
+    if selected_dept:
+        query = query.filter_by(dept=selected_dept)
     
     all_subjects = query.all()
-    all_teachers = User.query.filter_by(role='teacher').all() # This could be cached too but teachers change occasionally
+    
+    # Sort subjects by Semester (asc) then Name
+    def sort_key(s):
+        try:
+            sem = int(getattr(s, 'semester', 0))
+        except:
+            sem = 0
+        return (sem, str(getattr(s, 'name', '')).lower())
+        
+    all_subjects.sort(key=sort_key)
+    
+    all_teachers = User.query.filter_by(role='teacher').all()
     departments = get_cached_metadata('departments', Department)
 
     return render_template('subjects.html', subjects=all_subjects, teachers=all_teachers, 
-                          selected_semester=selected_semester, departments=departments)
+                          selected_semester=selected_semester, selected_dept=selected_dept,
+                          departments=departments)
 
 @app.route('/subjects/bulk_upload', methods=['POST'])
 @login_required
@@ -1463,7 +1575,7 @@ def reports():
         penalty = late // 3
         effective_present = max(0, (p + od + ml + session_lates) - penalty)
         
-        perc = round((effective_present / t * 100), 2) if t > 0 else 0.0
+        perc = min(100.0, round((effective_present / t * 100), 2)) if t > 0 else 0.0
         report_data.append({
             'student': s, 
             'total': t, 
@@ -1624,7 +1736,7 @@ def export_summary_excel():
         # Match reports.html logic exactly
         eff_p = max(0, (p + od + ml + 0) - penalty) # Match what I wrote in reports route
         # Re-calc precisely
-        perc = round((eff_p / t * 100), 2) if t > 0 else 0.0
+        perc = min(100.0, round((eff_p / t * 100), 2)) if t > 0 else 0.0
         
         results.append({
             'Roll No': s.roll_no,
@@ -1720,7 +1832,7 @@ def student_dashboard():
             total_late_for_penalty = late_subj + late_global
             eff_p = max(0, (p_raw + od_subj + od_global + ml_subj + ml_global + late_subj) - (total_late_for_penalty // 3))
             
-            perc = round((eff_p / total * 100), 2)
+            perc = min(100.0, round((eff_p / total * 100), 2))
             p = eff_p
             # For the table stats
             od = od_subj + od_global
@@ -1745,7 +1857,7 @@ def student_dashboard():
     total_ml_overall = len([r for r in all_attendance if getattr(r, 'status', '') == 'ML'])
     total_late_overall = len([r for r in all_attendance if getattr(r, 'status', '') == 'Late'])
     
-    overall_perc = (total_present_overall / total_held_overall * 100) if total_held_overall > 0 else 0
+    overall_perc = min(100.0, (total_present_overall / total_held_overall * 100)) if total_held_overall > 0 else 0
     absent_count_overall = max(0, total_held_overall - total_present_overall)
     
     return render_template('student_dashboard.html', 

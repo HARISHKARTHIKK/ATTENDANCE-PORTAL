@@ -250,6 +250,12 @@
                 </a>
             </div>
             <div class="nav-item">
+                <a href="{{ url_for('class_incharge') }}"
+                    class="nav-link {% if request.endpoint == 'class_incharge' %}active{% endif %}">
+                    <i class="bi bi-person-video3"></i> Class In-charge
+                </a>
+            </div>
+            <div class="nav-item">
                 <a href="{{ url_for('teachers') }}"
                     class="nav-link {% if request.endpoint == 'teachers' %}active{% endif %}">
                     <i class="bi bi-person-workspace"></i> Teachers
@@ -323,14 +329,22 @@
                 </a>
             </div>
 
-            {% elif current_user.role == 'teacher' %}
-            <!-- Teacher Links -->
+            {% elif current_user.role in ['teacher', 'in_charge'] %}
+            <!-- Staff Links -->
             <div class="nav-item">
                 <a href="{{ url_for('dashboard') }}"
                     class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}">
                     <i class="bi bi-speedometer2"></i> Dashboard
                 </a>
             </div>
+            {% if current_user.role == 'in_charge' %}
+            <div class="nav-item">
+                <a href="{{ url_for('class_incharge') }}"
+                    class="nav-link {% if request.endpoint == 'class_incharge' %}active{% endif %}">
+                    <i class="bi bi-person-video3"></i> Class In-charge
+                </a>
+            </div>
+            {% endif %}
             <div class="nav-item">
                 <a href="{{ url_for('attendance') }}"
                     class="nav-link {% if request.endpoint == 'attendance' %}active{% endif %}">

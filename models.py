@@ -277,7 +277,7 @@ class Student(FirestoreModel):
         effective_present = max(0, effective_presence - penalty)
         
         percentage = (effective_present / total) * 100
-        return total, effective_present, round(percentage, 2), od, ml, late
+        return total, effective_present, round(min(100.0, percentage), 2), od, ml, late
 
 class Subject(FirestoreModel):
     __collection__ = 'subjects'

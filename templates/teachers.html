@@ -30,6 +30,7 @@
                     <th>Name</th>
                     <th>Email / Username</th>
                     <th>Phone</th>
+                    <th>Role</th>
                     <th>Assigned Classes</th>
                     <th class="text-end pe-4">Actions</th>
                 </tr>
@@ -41,6 +42,13 @@
                     <td class="fw-semibold">{{ teacher.name }}</td>
                     <td>{{ teacher.email }}</td>
                     <td>{{ teacher.phone or 'N/A' }}</td>
+                    <td>
+                        {% if teacher.role == 'in_charge' %}
+                        <span class="badge bg-info">In-charge</span>
+                        {% else %}
+                        <span class="badge bg-secondary-subtle text-secondary">Teacher</span>
+                        {% endif %}
+                    </td>
                     <td>
                         {% for class_id in teacher.assigned_classes %}
                         <span class="badge bg-primary-subtle text-primary">{{ class_map.get(class_id|string, 'Unknown')
@@ -137,6 +145,13 @@
                             class="form-control bg-light border-0 py-2" placeholder="New login password">
                         <small class="text-muted">Leave blank to keep current password.</small>
                     </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-uppercase text-muted">Role / Position</label>
+                        <select name="role" id="edit_role" class="form-select bg-light border-0 py-2" required>
+                            <option value="teacher">Subject Teacher</option>
+                            <option value="in_charge">Class In-charge</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="modal-footer border-0 pt-0">
                     <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
@@ -210,6 +225,13 @@
                         <label class="form-label small fw-bold text-uppercase text-muted">Password</label>
                         <input type="password" name="password" class="form-control bg-light border-0 py-2"
                             placeholder="Default: teacher123">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-uppercase text-muted">Role / Position</label>
+                        <select name="role" class="form-select bg-light border-0 py-2" required>
+                            <option value="teacher">Subject Teacher</option>
+                            <option value="in_charge">Class In-charge</option>
+                        </select>
                     </div>
                 </div>
                 <div class="modal-footer border-0 pt-0">
@@ -285,6 +307,7 @@
                     document.getElementById('edit_email').value = data.email;
                     document.getElementById('edit_phone').value = data.phone || '';
                     document.getElementById('edit_password').value = '';
+                    document.getElementById('edit_role').value = data.role || 'teacher';
                     const editModal = new bootstrap.Modal(document.getElementById('editTeacherModal'));
                     editModal.show();
                 });

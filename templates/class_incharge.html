@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+
+{% block title %}Class In-charge Dashboard - EduGate{% endblock %}
+
+{% block content %}
+<div class="row mb-4 align-items-center">
+    <div class="col-md-6">
+        <h2 class="fw-bold"><i class="bi bi-person-video3 me-2 text-primary"></i>Class In-charge</h2>
+        <p class="text-muted">Management portal for <strong>{{ cls.name }}</strong></p>
+    </div>
+    {% if all_classes %}
+    <div class="col-md-6 text-md-end">
+        <div class="dropdown d-inline-block">
+            <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                Change Class: {{ cls.name }}
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0">
+                {% for c in all_classes %}
+                <li><a class="dropdown-item" href="{{ url_for('class_incharge', class_id=c.id) }}">{{ c.name }}</a></li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<div class="row g-4 mb-5">
+    <!-- Class Info Cards -->
+    <div class="col-md-3">
+        <div class="card h-100 shadow-sm border-0 bg-primary text-white p-3">
+            <div class="d-flex justify-content-between">
+                <div>
+                    <p class="small text-white-50 mb-1">Total Students</p>
+                    <h3 class="fw-bold mb-0">{{ students|length }}</h3>
+                </div>
+                <i class="bi bi-people fs-1 opacity-25"></i>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100 shadow-sm border-0 bg-success text-white p-3">
+            <div class="d-flex justify-content-between">
+                <div>
+                    <p class="small text-white-50 mb-1">Today's Present</p>
+                    <h3 class="fw-bold mb-0">{{ stats.present }}</h3>
+                </div>
+                <i class="bi bi-person-check fs-1 opacity-25"></i>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100 shadow-sm border-0 bg-danger text-white p-3">
+            <div class="d-flex justify-content-between">
+                <div>
+                    <p class="small text-white-50 mb-1">Today's Absent</p>
+                    <h3 class="fw-bold mb-0">{{ stats.absent }}</h3>
+                </div>
+                <i class="bi bi-person-x fs-1 opacity-25"></i>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100 shadow-sm border-0 bg-warning text-dark p-3">
+            <div class="d-flex justify-content-between">
+                <div>
+                    <p class="small text-dark-50 mb-1">Today's Late/OD/ML</p>
+                    <h3 class="fw-bold mb-0">{{ stats.late + stats.od + stats.ml }}</h3>
+                </div>
+                <i class="bi bi-clock-history fs-1 opacity-25"></i>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow-sm border-0 p-4">
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-center mb-4 gap-3">
+        <h4 class="fw-bold mb-0">Student Attendance Summary</h4>
+        <div class="input-group w-auto">
+            <span class="input-group-text bg-light border-0"><i class="bi bi-search"></i></span>
+            <input type="text" id="studentSearch" class="form-control bg-light border-0" placeholder="Search students...">
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-hover align-middle" id="studentTable">
+            <thead class="bg-light">
+                <tr>
+                    <th style="min-width: 120px;">Roll No</th>
+                    <th style="min-width: 180px;">Name</th>
+                    {% for sub in subjects %}
+                    <th class="text-center">
+                        <div class="small fw-bold text-uppercase text-truncate" title="{{ sub.name }}" style="max-width: 100px;">{{ sub.name }}</div>
+                    </th>
+                    {% endfor %}
+                    <th class="text-center">Overall</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in students %}
+                <tr>
+                    <td><span class="badge bg-light text-dark border">{{ item.student.roll_no }}</span></td>
+                    <td class="fw-semibold">{{ item.student.name }}</td>
+                    {% for sub in subjects %}
+                    {% set status = item.subject_today.get(sub.id, '-') %}
+                    <td class="text-center">
+                        {% if status == 'Present' %}
+                        <span class="badge bg-success rounded-pill px-2" style="font-size: 0.75rem;">Present</span>
+                        {% elif status == 'Absent' %}
+                        <span class="badge bg-danger rounded-pill px-2" style="font-size: 0.75rem;">Absent</span>
+                        {% elif status == 'Late' %}
+                        <span class="badge bg-warning text-dark rounded-pill px-2" style="font-size: 0.75rem;">Late</span>
+                        {% elif status == 'OD' %}
+                        <span class="badge bg-info rounded-pill px-2" style="font-size: 0.75rem;">OD</span>
+                        {% elif status == 'ML' %}
+                        <span class="badge bg-secondary rounded-pill px-2" style="font-size: 0.75rem;">ML</span>
+                        {% else %}
+                        <span class="text-muted opacity-50">-</span>
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+                    <td class="text-center">
+                        <span class="fw-bold fs-6">{{ item.percentage }}%</span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.getElementById('studentSearch').addEventListener('keyup', function() {
+        let filter = this.value.toLowerCase();
+        let rows = document.querySelectorAll('#studentTable tbody tr');
+        rows.forEach(row => {
+            let text = row.innerText.toLowerCase();
+            row.style.display = text.includes(filter) ? '' : 'none';
+        });
+    });
+</script>
+{% endblock %}
