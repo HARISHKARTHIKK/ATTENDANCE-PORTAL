@@ -240,10 +240,20 @@ class Classroom(FirestoreModel):
 class Student(FirestoreModel):
     __collection__ = 'students'
     def get_attendance_stats(self, subject_id=None):
-        query = Attendance.query.filter_by(student_id=self.id)
+        # Robust Fetch: check both ID and Roll Number
+        query_id = Attendance.query.filter_by(student_id=str(self.id))
+        query_roll = Attendance.query.filter_by(student_id=str(self.roll_no))
+        
         if subject_id:
-            query = query.filter_by(subject_id=subject_id)
-        records = query.all()
+            query_id = query_id.filter_by(subject_id=subject_id)
+            query_roll = query_roll.filter_by(subject_id=subject_id)
+            
+        recs_id = query_id.all()
+        recs_roll = query_roll.all()
+        
+        # Merge and deduplicate
+        records_map = {r.id: r for r in (recs_id + recs_roll)}
+        records = list(records_map.values())
         
         # Day-wise grouping
         days_marked = {} # date -> set of statuses

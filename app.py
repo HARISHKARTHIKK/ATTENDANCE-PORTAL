@@ -1461,23 +1461,34 @@ def attendance_history():
             flash('Student record not found.', 'danger')
             return redirect(url_for('dashboard'))
             
-        # Attendance on this date
-        records = Attendance.query.filter_by(student_id=student.id, date=selected_date).all()
+        # Robust Fetch: Try doc ID first, then roll_no as fallback for older records
+        records_by_id = Attendance.query.filter_by(student_id=str(student.id)).all()
+        records_by_roll = Attendance.query.filter_by(student_id=str(student.roll_no)).all()
+        # Merge and deduplicate by document ID
+        all_recs_map = {r.id: r for r in (records_by_id + records_by_roll)}
+        all_recs = list(all_recs_map.values())
+        
+        # Filter for the selected date
+        records = [r for r in all_recs if str(getattr(r, 'date', '')).strip() == str(selected_date).strip()]
+        
+        # Get list of all unique dates the student has records for (for navigation help)
+        available_dates = sorted(list({str(getattr(r, 'date', '')) for r in all_recs if getattr(r, 'date', None)}), reverse=True)
         
         history = []
         for r in records:
             sub = all_subjects.get(str(r.subject_id))
             history.append({
-                'subject_name': sub.name if sub else 'Global/Other',
-                'subject_code': sub.code if sub else 'N/A',
+                'subject_name': sub.name if sub else ('General/Gate' if str(r.subject_id) == 'GLOBAL' else 'Other Session'),
+                'subject_code': sub.code if sub else (str(r.subject_id) if str(r.subject_id) == 'GLOBAL' else 'N/A'),
                 'status': r.status,
-                'marked_by': User.query.get(r.teacher_id).name if r.teacher_id else 'System'
+                'marked_by': User.query.get(r.teacher_id).name if r.teacher_id and User.query.get(r.teacher_id) else 'System'
             })
             
         return render_template('daily_attendance.html', 
                              date=selected_date, 
                              history=history,
-                             student=student)
+                             student=student,
+                             available_dates=available_dates)
                              
     elif is_staff:
         # Staff can see class-wise attendance for a day
@@ -1909,20 +1920,25 @@ def student_dashboard():
         flash('Student record not found.', 'danger')
         return redirect(url_for('dashboard'))
         
-    # Optimized: Fetch all attendance records once to avoid N queries
-    all_attendance = Attendance.query.filter_by(student_id=student.id).all()
+    # Optimized: Fetch all attendance records once (Robust: Check both ID and Roll No)
+    recs_id = Attendance.query.filter_by(student_id=str(student.id)).all()
+    recs_roll = Attendance.query.filter_by(student_id=str(student.roll_no)).all()
+    all_attendance_map = {r.id: r for r in (recs_id + recs_roll)}
+    all_attendance = list(all_attendance_map.values())
     # Filter subjects for current semester and department (Robust check)
-    subjects_all = Subject.query.filter_by(semester=str(student.semester)).all()
-    if not subjects_all:
-        try:
-            subjects_all = Subject.query.filter_by(semester=int(student.semester)).all()
-        except:
-            subjects_all = []
-            
+    all_subjects = Subject.query.all()
     subjects = [
-        s for s in subjects_all 
-        if str(getattr(s, 'dept', '')).lower().strip() == student.dept.lower().strip()
+        s for s in all_subjects 
+        if str(getattr(s, 'semester', '')).strip() == str(student.semester).strip() and
+        str(getattr(s, 'dept', '')).lower().strip() == str(student.dept).lower().strip()
     ]
+    
+    # Fallback: if student has attendance for any subject, include it to ensure visibility
+    attended_ids = {getattr(r, 'subject_id', '') for r in all_attendance if getattr(r, 'subject_id', '') != 'GLOBAL'}
+    seen_ids = {s.id for s in subjects}
+    for s in all_subjects:
+        if s.id in attended_ids and s.id not in seen_ids:
+            subjects.append(s)
         
     subject_stats = []
     total_held_overall = 0
@@ -1935,42 +1951,26 @@ def student_dashboard():
     global_records = [r for r in all_attendance if getattr(r, 'subject_id', '') == 'GLOBAL']
     
     for sub in subjects:
-        # Filter and calculate stats in-memory for this specific subject
-        subj_records = [r for r in all_attendance if getattr(r, 'subject_id', '') == sub.id]
+        sub_id_str = str(sub.id).strip()
+        subj_records = [r for r in all_attendance if str(getattr(r, 'subject_id', '')).strip() == sub_id_str]
         total = len(subj_records)
         
         if total == 0:
             p, od, leave, late, perc = 0, 0, 0, 0, 0.0
         else:
             p_raw = len([r for r in subj_records if getattr(r, 'status', '') == 'Present'])
-            
-            # OD and ML can be from specific sessions or marked globally
-            # For simplicity, we count global OD/ML once for the student, 
-            # but per-subject we look at the subject-specific ones.
-            # Actually, per-subject percentage logic usually includes global OD/ML as "Present".
-            
             od_subj = len([r for r in subj_records if getattr(r, 'status', '') == 'OD'])
             leave_subj = len([r for r in subj_records if getattr(r, 'status', '') == 'Leave'])
-            
-            # Global status counts (filtered by date if needed, but here we assume all records for the student)
-            # To avoid overcounting in "overall" stats, we'll handle global stats separately outside the loop.
-            od_global = len([r for r in global_records if getattr(r, 'status', '') == 'OD'])
-            leave_global = len([r for r in global_records if getattr(r, 'status', '') == 'Leave'])
-            
             late_subj = len([r for r in subj_records if getattr(r, 'status', '') == 'Late'])
-            late_global = len([r for r in global_records if getattr(r, 'status', '') == 'Late'])
             
-            # effective_presence = (Present + OD + Leave + Session_Lates) - (Total_Lates // 3)
-            # Percentage for a subject:
-            total_late_for_penalty = late_subj + late_global
-            eff_p = max(0, (p_raw + od_subj + od_global + leave_subj + leave_global + late_subj) - (total_late_for_penalty // 3))
+            # Penalize lates for this subject
+            eff_p = max(0, (p_raw + od_subj + leave_subj + late_subj) - (late_subj // 3))
             
             perc = min(100.0, round((eff_p / total * 100), 2))
             p = eff_p
-            # For the table stats
-            od = od_subj + od_global
-            leave = leave_subj + leave_global
-            late = total_late_for_penalty
+            od = od_subj
+            leave = leave_subj
+            late = late_subj
 
         subject_stats.append({
             'name': sub.name,
@@ -1984,6 +1984,28 @@ def student_dashboard():
         })
         total_held_overall += total
         total_present_overall += p
+
+    # Add row for Global records if any exist and are not already counted
+    if global_records:
+        g_p = len([r for r in global_records if getattr(r, 'status', '') == 'Present'])
+        g_od = len([r for r in global_records if getattr(r, 'status', '') == 'OD'])
+        g_leave = len([r for r in global_records if getattr(r, 'status', '') == 'Leave'])
+        g_late = len([r for r in global_records if getattr(r, 'status', '') == 'Late'])
+        g_total = len(global_records)
+        g_eff = max(0, (g_p + g_od + g_leave + g_late) - (g_late // 3))
+        
+        subject_stats.append({
+            'name': 'General/Gate Marking',
+            'code': 'GLOBAL',
+            'total': g_total,
+            'present': g_eff,
+            'perc': round((g_eff / g_total * 100), 2) if g_total > 0 else 0,
+            'od': g_od,
+            'leave': g_leave,
+            'late': g_late
+        })
+        total_held_overall += g_total
+        total_present_overall += g_eff
 
     # Get overall stats using centralized logic (day-wise + penalties)
     overall_res = student.get_attendance_stats()

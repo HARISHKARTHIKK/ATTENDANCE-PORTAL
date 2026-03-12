@@ -45,6 +45,19 @@
                     </div>
                 </div>
             </div>
+
+            {% if available_dates %}
+            <div class="mt-4 text-start">
+                <label class="form-label small fw-bold text-muted text-uppercase">Dates with History</label>
+                <div class="d-flex flex-wrap gap-2">
+                    {% for adate in available_dates[:5] %}
+                    <a href="{{ url_for('attendance_history', date=adate) }}" class="badge {% if adate == date %}bg-primary{% else %}bg-light text-dark border{% endif %} text-decoration-none px-3 py-2">
+                        {{ adate }}
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
         </div>
     </div>
     <div class="col-lg-8">
