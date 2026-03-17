@@ -759,9 +759,11 @@ def get_subjects_by_semester(semester_id, dept):
 @admin_required
 def delete_teacher(id):
     teacher = User.query.get_or_404(id)
-    if teacher and teacher.role == 'teacher':
+    if teacher and teacher.role in ['teacher', 'in_charge']:
         teacher.delete()
         flash('Teacher removed!', 'info')
+    else:
+        flash('Cannot remove this user!', 'danger')
     return redirect(url_for('teachers'))
 
 @app.route('/edit_teacher/<id>', methods=['POST'])
