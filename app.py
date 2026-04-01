@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 # 1. Initialize Firebase Admin SDK AT THE VERY TOP
 load_dotenv()
 firebase_key_raw = os.getenv('FIREBASE_KEY')
+service_account_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'serviceAccountKey.json')
 
 if not firebase_admin._apps:
     try:
@@ -19,8 +20,12 @@ if not firebase_admin._apps:
                 'projectId': project_id
             })
             print(f"Firebase initialized successfully for project: {project_id}")
+        elif os.path.isfile(service_account_path):
+            cred = credentials.Certificate(service_account_path)
+            firebase_admin.initialize_app(cred)
+            print(f"Firebase initialized successfully from local service account file: {service_account_path}")
         else:
-            # Fallback for local development
+            # Fallback for local development if no explicit credentials are provided
             firebase_admin.initialize_app()
             print("Firebase initialized with default credentials")
     except Exception as e:
@@ -200,11 +205,11 @@ def dashboard():
 
     
     today = datetime.utcnow().date()
-    today_dt = datetime.combine(today, datetime.min.time())
+    today_str = today.strftime('%Y-%m-%d')
     in_charge_data = None
     hod_summary = []
 
-    attendance_today = Attendance.query.filter_by(date=today_dt).all()
+    attendance_today = Attendance.query.filter_by(date=today_str).all()
     student_today_statuses = {}
     for rec in attendance_today:
         sid = str(getattr(rec, 'student_id', ''))
@@ -407,8 +412,8 @@ def class_incharge():
 
     # Today's stats (Day-wise student based)
     today = datetime.utcnow().date()
-    today_dt = datetime.combine(today, datetime.min.time())
-    attendance_today = Attendance.query.filter_by(date=today_dt, class_id=selected_class_id).all()
+    today_str = today.strftime('%Y-%m-%d')
+    attendance_today = Attendance.query.filter_by(date=today_str, class_id=selected_class_id).all()
     
     # student_id -> set of statuses today
     student_today_statuses = {}
@@ -459,6 +464,7 @@ def class_incharge():
             'od': overall_res[3],
             'leave': overall_res[4],
             'late': overall_res[5],
+            
             'subject_today': subject_today_data
         })
 
