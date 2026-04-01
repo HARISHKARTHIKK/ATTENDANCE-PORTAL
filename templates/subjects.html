@@ -9,6 +9,7 @@
         <p class="text-muted small">Academic subjects mapped to Semesters and Departments.</p>
     </div>
     {% if current_user.role == 'admin' %}
+<<<<<<< Updated upstream
     <div class="col-md-6 text-md-end">
         <button class="btn btn-outline-primary shadow-sm me-2" data-bs-toggle="modal"
             data-bs-target="#importSubjectsModal">
@@ -56,6 +57,15 @@
             </form>
         </div>
     </div>
+=======
+    <button class="btn btn-outline-primary shadow-sm me-2" data-bs-toggle="modal" data-bs-target="#importSubjectsModal">
+        <i class="bi bi-file-earmark-arrow-up me-2"></i>Import Subjects
+    </button>
+    <button class="btn btn-primary shadow-sm" data-bs-toggle="modal" data-bs-target="#addSubjectModal">
+        <i class="bi bi-plus-lg me-2"></i>Create Subject
+    </button>
+    {% endif %}
+>>>>>>> Stashed changes
 </div>
 
 <div class="row row-cols-1 row-cols-md-3 g-4">
