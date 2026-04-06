@@ -164,11 +164,8 @@ def dashboard():
     if current_user.role in ['teacher', 'in_charge']:
         # Teacher Specific Counts
         total_students = Student.query.where('class_id', 'in', assigned_ids).count() if assigned_ids else 0
-<<<<<<< Updated upstream
-=======
         total_subjects = Subject.query.count() # Subjects might be common, keep for now or filter if needed
         total_classes = len(assigned_ids)
->>>>>>> Stashed changes
         total_teachers = User.query.where('role', 'in', ['teacher', 'in_charge', 'hod']).count()
     else:
         # Admin / HOD Full View
@@ -190,23 +187,10 @@ def dashboard():
         total_teachers = counts['teachers']
 
     
-<<<<<<< Updated upstream
     # Optimized Top Students Summary
     if current_user.role in ['teacher', 'in_charge'] and assigned_ids:
         # Fetch students in assigned classes
         top_students = Student.query.where('class_id', 'in', assigned_ids).limit(10).all()
-=======
-    # Top Students Summary
-    if current_user.role in ['teacher', 'in_charge'] and assigned_ids:
-        all_s_pool = Student.query.where('class_id', 'in', assigned_ids).all()
-        # Sort by attendance percentage (expensive, limited to top 10)
-        scored_students = []
-        for s in all_s_pool:
-            stats = s.get_attendance_stats()
-            scored_students.append((s, stats[2])) # student, perc
-        scored_students.sort(key=lambda x: x[1], reverse=True)
-        top_students = [x[0] for x in scored_students[:10]]
->>>>>>> Stashed changes
     else:
         top_students = Student.query.limit(10).all()
 
@@ -237,11 +221,14 @@ def dashboard():
         student_today_statuses[sid].add(getattr(rec, 'status', ''))
         
     # Resolve student depts and classes for stats - ONLY for students marked today
-    today_sids = list(student_today_statuses.keys())
-    student_map = {}
-    if today_sids:
-        found_s = Student.query.where('id', 'in', today_sids).all()
-        student_map = {str(s.id): s for s in found_s}
+    # To be robust (handling doc ids, roll numbers, and Firestore internal ID mapping), 
+    # we'll fetch all students once and map them. This is efficient for small-medium systems.
+    all_students_pool = Student.query.all()
+    student_map = {str(s.id): s for s in all_students_pool}
+    # Also index by roll_no for any records still using it
+    for s in all_students_pool:
+        if getattr(s, 'roll_no', None):
+            student_map[str(s.roll_no)] = s
     
     stats_map = {} # cid -> {'present', 'absent', 'od', 'leave', 'late'}
     attendee_dept_map = {} # sid -> dept
@@ -326,7 +313,6 @@ def dashboard():
                 _cache['dept_counts'] = {'data': dept_counts, 'time': datetime.now().timestamp()}
             total_dept_students = _cache['dept_counts']['data'].get(d.name, 0)
 
-<<<<<<< Updated upstream
         dept_present = 0
         dept_absent = 0
         dept_late = 0
@@ -345,29 +331,6 @@ def dashboard():
                 else:
                     dept_present += 1
                     if 'Late' in statuses: dept_late += 1
-=======
-        present_today = 0
-        absent_today = 0
-        late_today = 0
-        
-        for rec in attendance_today:
-            sid = str(getattr(rec, 'student_id', ''))
-            s_dept = str(attendee_dept_map.get(sid, '')).lower().strip()
-            if sid and s_dept == str(d.name).lower().strip():
-                # For teacher, double check the student belongs to their classes
-                if current_user.role in ['teacher', 'in_charge'] and assigned_ids:
-                    s_obj = all_students_map.get(sid) if 'all_students_map' in locals() else Student.query.get(sid)
-                    if not s_obj or str(getattr(s_obj, 'class_id', '')) not in assigned_ids:
-                        continue
-                
-                status = getattr(rec, 'status', '')
-                if status == 'Present':
-                    present_today += 1
-                elif status == 'Absent':
-                    absent_today += 1
-                elif status == 'Late':
-                    late_today += 1
->>>>>>> Stashed changes
         
         dept_stats.append({
             'name': d.name,
@@ -378,7 +341,6 @@ def dashboard():
             'late': dept_late
         })
 
-<<<<<<< Updated upstream
     # Calculate Overall Today's Summary
     total_present_today = 0
     for sid, statuses in student_today_statuses.items():
@@ -388,24 +350,14 @@ def dashboard():
                 s_obj = student_map.get(sid)
                 if not s_obj or str(getattr(s_obj, 'class_id', '')) not in assigned_ids:
                     continue
-=======
-    # Calculate Today's Attendance Stats
-    total_present_today = 0
-    for rec in attendance_today:
-        if getattr(rec, 'status', '') == 'Present':
->>>>>>> Stashed changes
             total_present_today += 1
             
     today_attendance_perc = 0
     if total_students > 0:
-<<<<<<< Updated upstream
         today_attendance_perc = min(100.0, round((total_present_today / total_students) * 100, 1))
     
     # Pre-fetch all depts once for UI if needed
     all_depts_list = get_cached_metadata('departments', Department)
-=======
-        today_attendance_perc = round((total_present_today / total_students) * 100, 1)
->>>>>>> Stashed changes
 
     return render_template('dashboard.html', 
                            total_students=total_students, 
@@ -596,10 +548,7 @@ def teachers():
         name = request.form.get('name')
         email = request.form.get('email')
         password = request.form.get('password') or 'teacher123'
-<<<<<<< Updated upstream
         role = request.form.get('role', 'teacher')
-=======
->>>>>>> Stashed changes
         
         existing_user = User.query.filter_by(email=email).first()
         if existing_user:
@@ -654,11 +603,7 @@ def bulk_upload_teachers():
                     flash(f'Missing required column: {col}', 'danger')
                     return redirect(url_for('teachers'))
             
-<<<<<<< Updated upstream
             existing_users = {str(getattr(u, 'email', '')).strip().lower() for u in User.query.all() if getattr(u, 'email', None)}
-=======
-            existing_users = {str(u.email).strip().lower() for u in User.query.all()}
->>>>>>> Stashed changes
             all_classes_map = {str(c.name).strip().lower(): str(c.id) for c in Classroom.query.all()}
             success_count = 0
             
@@ -686,11 +631,8 @@ def bulk_upload_teachers():
                 new_teacher = User(
                     name=name, 
                     email=email, 
-<<<<<<< Updated upstream
                     username=email.strip().lower(), 
-=======
-                    username=email, 
->>>>>>> Stashed changes
+
                     password=hashed_pw, 
                     role='teacher', 
                     phone=phone,
@@ -1360,86 +1302,6 @@ def download_subject_template():
         download_name='subject_template.csv'
     )
 
-@app.route('/subjects/bulk_upload', methods=['POST'])
-@login_required
-@admin_required
-def bulk_upload_subjects():
-    if 'file' not in request.files:
-        flash('No file part', 'danger')
-        return redirect(url_for('subjects'))
-    
-    file = request.files['file']
-    if file.filename == '':
-        flash('No selected file', 'danger')
-        return redirect(url_for('subjects'))
-    
-    if file and (file.filename.endswith('.csv') or file.filename.endswith('.xlsx')):
-        try:
-            if file.filename.endswith('.csv'):
-                try:
-                    content = file.stream.read().decode("UTF-8")
-                except UnicodeDecodeError:
-                    file.stream.seek(0)
-                    content = file.stream.read().decode("latin1")
-                stream = io.StringIO(content, newline=None)
-                df = pd.read_csv(stream)
-            else:
-                df = pd.read_excel(file)
-            
-            df.columns = [str(c).strip() for c in df.columns]
-            required_cols = ['Name', 'Code', 'Dept', 'Semester']
-            for col in required_cols:
-                if col not in df.columns:
-                    flash(f'Missing required column: {col}', 'danger')
-                    return redirect(url_for('subjects'))
-            
-            teachers_map = {str(u.email).strip().lower(): u.id for u in User.query.filter_by(role='teacher').all()}
-            success_count = 0
-            
-            for _, row in df.iterrows():
-                name = str(row['Name']).strip()
-                code = str(row['Code']).strip()
-                dept = str(row['Dept']).strip()
-                semester = str(row['Semester']).strip()
-                teacher_email = str(row.get('Teacher_Email', '')).strip().lower()
-                
-                if not name or not code:
-                    continue
-                
-                teacher_id = teachers_map.get(teacher_email)
-                new_subject = Subject(
-                    name=name, 
-                    code=code, 
-                    dept=dept, 
-                    semester=semester, 
-                    teacher_id=teacher_id
-                )
-                new_subject.save()
-                success_count += 1
-                
-            flash(f'Successfully imported {success_count} subjects!', 'success')
-        except Exception as e:
-            flash(f'Error processing file: {e}', 'danger')
-            
-    return redirect(url_for('subjects'))
-
-@app.route('/admin/subjects/template')
-@login_required
-@admin_required
-def download_subject_template():
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(['Name', 'Code', 'Dept', 'Semester', 'Teacher_Email'])
-    writer.writerow(['Data Structures', 'CS101', 'Computer Science', '3', 'ramesh@college.edu'])
-    writer.writerow(['Business Math', 'BM202', 'B.COM', '2', 'priya@college.edu'])
-    
-    output.seek(0)
-    return send_file(
-        io.BytesIO(output.getvalue().encode()),
-        mimetype='text/csv',
-        as_attachment=True,
-        download_name='subject_template.csv'
-    )
 
 @app.route('/delete_subject/<id>')
 
@@ -2349,13 +2211,8 @@ def status_portal(status_type):
         classrooms = all_classrooms
         departments = all_departments
     
-<<<<<<< Updated upstream
     # Capitalize status for display (LEAVE -> Leave, OD -> OD, LATE -> Late)
     display_status = status_type.title() if status_type in ['LATE', 'LEAVE'] else status_type
-=======
-    # Capitalize status for display (ML -> ML, OD -> OD, LATE -> Late)
-    display_status = status_type.title() if status_type == 'LATE' else status_type
->>>>>>> Stashed changes
     
     # Fetch already marked students for this date and status type
     marked_records = Attendance.query.filter_by(date=selected_date, status=display_status).all()
